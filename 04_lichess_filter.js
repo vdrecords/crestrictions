@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         04_lichess_filter - Фильтр контента Lichess (только Блиц+Рапид)
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Показ только Блиц и Рапид на Lichess, скрытие кнопок участия и досок для других типов игр
 // @match        https://lichess.org/*
 // @grant        GM_addStyle
@@ -114,99 +114,184 @@
         return allowedTypes.some(type => text.includes(type));
     }
 
-    // Get game type name on different pages
+    // Get game type name on different pages with multiple fallback strategies
     function detectGameType() {
-        // 1) Tournament page: general tournament meta block
+        // Strategy 1: Tournament page - general tournament meta block
         const tourMeta = document.querySelector('.tour__meta');
         if (tourMeta && tourMeta.textContent) {
-            return tourMeta.textContent.trim();
+            const type = tourMeta.textContent.trim();
+            if (type) {
+                console.log(`[LichessFilter] Detected game type from tour__meta: ${type}`);
+                return type;
+            }
         }
 
-        // 2) Game page: meta info on the left
-        //    Example block: .game__meta__infos .setup ... <span title="...">Пуля</span>
+        // Strategy 2: Game page - meta info on the left
         const gameSetup = document.querySelector('.game__meta__infos .setup');
         if (gameSetup && gameSetup.textContent) {
-            return gameSetup.textContent.trim();
+            const type = gameSetup.textContent.trim();
+            if (type) {
+                console.log(`[LichessFilter] Detected game type from game__meta__infos: ${type}`);
+                return type;
+            }
         }
 
-        // If nothing found — empty string
+        // Strategy 3: Look for game type in page title
+        const pageTitle = document.title;
+        if (pageTitle) {
+            for (const allowedType of allowedTypes) {
+                if (pageTitle.includes(allowedType)) {
+                    console.log(`[LichessFilter] Detected game type from page title: ${allowedType}`);
+                    return allowedType;
+                }
+            }
+        }
+
+        // Strategy 4: Look for game type in URL
+        const currentUrl = window.location.href;
+        for (const allowedType of allowedTypes) {
+            if (currentUrl.includes(allowedType.toLowerCase())) {
+                console.log(`[LichessFilter] Detected game type from URL: ${allowedType}`);
+                return allowedType;
+            }
+        }
+
+        // Strategy 5: Look for game type in any visible text on the page
+        const pageText = document.body.textContent;
+        for (const allowedType of allowedTypes) {
+            if (pageText.includes(allowedType)) {
+                console.log(`[LichessFilter] Detected game type from page text: ${allowedType}`);
+                return allowedType;
+            }
+        }
+
+        console.log(`[LichessFilter] No game type detected, assuming blocked`);
         return '';
     }
 
-    // Hide "Join" buttons on tournament pages (as in original script)
+    // Enhanced function to hide "Join" buttons with multiple strategies
     function hideJoinButtonsIfNeeded(isAllowed) {
         if (isAllowed) return;
 
+        let changed = false;
+
         try {
+            // Strategy 1: XPath for Russian text
             const xpath = "//button[contains(., 'Участвовать')]";
             const iterator = document.evaluate(xpath, document, null, XPathResult.ANY_TYPE, null);
             let btn = iterator.iterateNext();
-            let changed = false;
             while (btn) {
                 if (btn.style.display !== 'none') {
                     btn.style.display = 'none';
                     changed = true;
+                    console.log(`[LichessFilter] Hidden join button via XPath`);
                 }
                 btn = iterator.iterateNext();
             }
 
-            // Sometimes on Lichess it might not be a button, but a link-button.
-            // Additional safeguard:
-            const links = Array.from(document.querySelectorAll('a, button'));
-            for (const el of links) {
+            // Strategy 2: Look for any element with "Участвовать" text
+            const allElements = Array.from(document.querySelectorAll('*'));
+            for (const el of allElements) {
                 if (el.textContent && el.textContent.includes('Участвовать')) {
                     if (el.style.display !== 'none') {
                         el.style.display = 'none';
                         changed = true;
+                        console.log(`[LichessFilter] Hidden join element: ${el.tagName}`);
                     }
                 }
             }
-            return changed;
+
+            // Strategy 3: Look for English equivalents
+            const englishJoinTexts = ['Join', 'Join tournament', 'Participate'];
+            for (const text of englishJoinTexts) {
+                for (const el of allElements) {
+                    if (el.textContent && el.textContent.includes(text)) {
+                        if (el.style.display !== 'none') {
+                            el.style.display = 'none';
+                            changed = true;
+                            console.log(`[LichessFilter] Hidden English join element: ${el.tagName} with text: ${text}`);
+                        }
+                    }
+                }
+            }
+
         } catch (e) {
-            // Silent — just not found
-            return false;
+            console.log(`[LichessFilter] Error in hideJoinButtonsIfNeeded: ${e.message}`);
         }
+
+        return changed;
     }
 
-    // Hide chess board on game/round pages
+    // Enhanced function to hide chess board
     function hideBoardIfNeeded(isAllowed) {
-        const board = document.querySelector('.round__app__board.main-board');
-        if (!board) return false;
+        // Multiple selectors for different board types
+        const boardSelectors = [
+            '.round__app__board.main-board',
+            '.main-board',
+            '.board',
+            '.chess-board',
+            '[data-board]'
+        ];
 
-        // Hide only if NOT allowed
-        if (!isAllowed) {
-            if (board.style.display !== 'none') {
-                board.style.display = 'none';
-                return true;
+        let boardFound = false;
+        let boardHidden = false;
+
+        for (const selector of boardSelectors) {
+            const board = document.querySelector(selector);
+            if (board) {
+                boardFound = true;
+                console.log(`[LichessFilter] Found board with selector: ${selector}`);
+
+                if (!isAllowed) {
+                    if (board.style.display !== 'none') {
+                        board.style.display = 'none';
+                        boardHidden = true;
+                        console.log(`[LichessFilter] Hidden board with selector: ${selector}`);
+                    }
+                } else {
+                    // If type is allowed — make sure board is shown
+                    if (board.style.display === 'none') {
+                        board.style.display = '';
+                        console.log(`[LichessFilter] Showed board with selector: ${selector}`);
+                    }
+                }
             }
-            return false;
-        } else {
-            // If type is allowed — make sure board is shown
-            if (board.style.display === 'none') {
-                board.style.display = '';
-                return true;
-            }
-            return false;
         }
+
+        if (!boardFound) {
+            console.log(`[LichessFilter] No board found with any selector`);
+        }
+
+        return boardHidden;
     }
 
-    // Main procedure
+    // Enhanced main procedure with better logging
     function applyRules() {
+        console.log(`[LichessFilter] Applying rules...`);
+        
         const typeText = detectGameType();
         const allowed = isAllowedText(typeText);
 
+        console.log(`[LichessFilter] Game type: "${typeText}", Allowed: ${allowed}`);
+
         // 1) Tournaments: hide "Join" button if not allowed
-        hideJoinButtonsIfNeeded(allowed);
+        const joinButtonsHidden = hideJoinButtonsIfNeeded(allowed);
 
         // 2) Games/rounds: hide board if not allowed
-        hideBoardIfNeeded(allowed);
+        const boardHidden = hideBoardIfNeeded(allowed);
         
         // 3) Training themes: prevent clicks on blocked links
-        preventBlockedTrainingClicks();
+        const trainingClicksBlocked = preventBlockedTrainingClicks();
+
+        console.log(`[LichessFilter] Rules applied - Join buttons hidden: ${joinButtonsHidden}, Board hidden: ${boardHidden}, Training clicks blocked: ${trainingClicksBlocked}`);
+
+        return { allowed, joinButtonsHidden, boardHidden, trainingClicksBlocked };
     }
     
-    // Prevent clicks on blocked training theme links
+    // Enhanced function to prevent clicks on blocked training theme links
     function preventBlockedTrainingClicks() {
+        let blocked = 0;
+        
         blockedTrainingPaths.forEach(path => {
             const links = document.querySelectorAll(`a[href="${path}"]`);
             links.forEach(link => {
@@ -218,23 +303,104 @@
                         window.location.href = 'https://lichess.org/training';
                     }, true);
                     link.dataset.lichessFilterProcessed = 'true';
+                    blocked++;
                 }
             });
         });
+
+        return blocked;
     }
 
-    // First run
-    applyRules();
+    // Enhanced observer with better performance
+    let observerActive = false;
+    let lastApplyTime = 0;
+    const MIN_APPLY_INTERVAL = 100; // Minimum 100ms between applies
 
-    // Observer for DOM changes (Lichess actively redraws content)
-    const observer = new MutationObserver(() => {
+    function setupObserver() {
+        if (observerActive) return;
+
+        const observer = new MutationObserver((mutations) => {
+            const now = Date.now();
+            if (now - lastApplyTime < MIN_APPLY_INTERVAL) return;
+
+            // Only apply rules if there are significant DOM changes
+            const hasSignificantChanges = mutations.some(mutation => {
+                return mutation.type === 'childList' && 
+                       (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0);
+            });
+
+            if (hasSignificantChanges) {
+                lastApplyTime = now;
+                applyRules();
+            }
+        });
+
+        observer.observe(document.body, { 
+            childList: true, 
+            subtree: true,
+            attributes: false, // Don't watch attribute changes for performance
+            characterData: false
+        });
+
+        observerActive = true;
+        console.log(`[LichessFilter] Observer setup complete`);
+    }
+
+    // Enhanced initialization with multiple strategies
+    function initialize() {
+        console.log(`[LichessFilter] Initializing...`);
+        
+        // First run
+        const result = applyRules();
+        
+        // Setup observer for DOM changes
+        setupObserver();
+        
+        // Enhanced backup: repeated pings with exponential backoff
+        const kickers = [100, 300, 800, 2000, 5000];
+        kickers.forEach((ms, index) => {
+            setTimeout(() => {
+                console.log(`[LichessFilter] Backup check #${index + 1} after ${ms}ms`);
+                applyRules();
+            }, ms);
+        });
+
+        // Additional safety: check every 10 seconds for the first minute
+        for (let i = 1; i <= 6; i++) {
+            setTimeout(() => {
+                console.log(`[LichessFilter] Safety check #${i}`);
+                applyRules();
+            }, i * 10000);
+        }
+
+        // Long-term safety: check every 30 seconds
+        setInterval(() => {
+            applyRules();
+        }, 30000);
+
+        console.log(`[LichessFilter] Initialization complete`);
+    }
+
+    // Wait for DOM to be ready, then initialize
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        // DOM is already ready
+        initialize();
+    }
+
+    // Additional safety: also initialize when window loads
+    window.addEventListener('load', () => {
+        console.log(`[LichessFilter] Window loaded, applying rules again`);
         applyRules();
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    // Backup: repeated pings by timer (sometimes useful for lazy mounts)
-    const kickers = [500, 1200, 2500];
-    kickers.forEach(ms => setTimeout(applyRules, ms));
+    // Handle page visibility changes (for background tabs)
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            console.log(`[LichessFilter] Page became visible, applying rules`);
+            setTimeout(applyRules, 100); // Small delay to ensure DOM is ready
+        }
+    });
 
 })();
