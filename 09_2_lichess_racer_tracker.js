@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -16,7 +16,7 @@
     // ==============================
     // === Core Settings ===
     // ==============================
-    let   minTasksPerDay     = 500;        // Minimum puzzles per day
+    let   minTasksPerDay     = 800;        // Minimum puzzles per day
     
     // For compatibility with message control script (uses same GM key format)
     const COMPATIBILITY_ID   = 72;         // Fixed ID for GM key compatibility
