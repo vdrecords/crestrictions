@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -89,7 +89,7 @@
     function isInBlockingInterval(currentHour, currentMinute) {
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         
-        // First interval: 13:30 to 18:00
+        // First interval: 13:00 to 18:00
         const start1Minutes = timeToMinutes(blockStart1Hour, blockStart1Minute);
         const end1Minutes = timeToMinutes(blockEnd1Hour, blockEnd1Minute);
         
@@ -97,16 +97,34 @@
         const start2Minutes = timeToMinutes(blockStart2Hour, blockStart2Minute);
         const end2Minutes = timeToMinutes(blockEnd2Hour, blockEnd2Minute);
         
+        // Debug logging
+        console.log(`[TimeBlocker] Current time: ${currentHour}:${currentMinute} (${currentTimeInMinutes} minutes)`);
+        console.log(`[TimeBlocker] Interval 1: ${blockStart1Hour}:${blockStart1Minute} to ${blockEnd1Hour}:${blockEnd1Minute} (${start1Minutes} to ${end1Minutes})`);
+        console.log(`[TimeBlocker] Interval 2: ${blockStart2Hour}:${blockStart2Minute} to ${blockEnd2Hour}:${blockEnd2Minute} (${start2Minutes} to ${end2Minutes})`);
+        
         // Check first interval (same day)
         if (currentTimeInMinutes >= start1Minutes && currentTimeInMinutes < end1Minutes) {
+            console.log(`[TimeBlocker] Blocked by interval 1`);
             return true;
         }
         
         // Check second interval (spans midnight)
-        if (currentTimeInMinutes >= start2Minutes || currentTimeInMinutes < end2Minutes) {
-            return true;
+        // For interval spanning midnight: we need to handle the case where start > end
+        if (start2Minutes > end2Minutes) {
+            // Interval spans midnight (e.g., 21:00 to 8:00)
+            if (currentTimeInMinutes >= start2Minutes || currentTimeInMinutes < end2Minutes) {
+                console.log(`[TimeBlocker] Blocked by interval 2 (spans midnight)`);
+                return true;
+            }
+        } else {
+            // Regular interval (e.g., 8:00 to 21:00)
+            if (currentTimeInMinutes >= start2Minutes && currentTimeInMinutes < end2Minutes) {
+                console.log(`[TimeBlocker] Blocked by interval 2 (regular)`);
+                return true;
+            }
         }
         
+        console.log(`[TimeBlocker] Not blocked`);
         return false;
     }
 
@@ -133,8 +151,11 @@
         const currentHour = now.getHours();
         const currentMinute = now.getMinutes();
 
+        console.log(`[TimeBlocker] Checking time: ${currentHour}:${currentMinute}`);
+
         // Check if we're in blocking interval
         if (isInBlockingInterval(currentHour, currentMinute)) {
+            console.log(`[TimeBlocker] BLOCKING PAGE - Time is up`);
             blockPage('Time is up');
             return;
         }
@@ -143,14 +164,21 @@
         const timeUntilBlock = getTimeUntilBlocking(currentHour, currentMinute);
         
         if (timeUntilBlock > 0 && timeUntilBlock <= warningMinutes) {
+            console.log(`[TimeBlocker] Showing warning timer: ${timeUntilBlock} minutes until blocking`);
             showWarningTimer(`Until blocking: ${timeUntilBlock} min.`);
             return;
         }
 
+        console.log(`[TimeBlocker] No blocking needed, removing timer if exists`);
         removeWarningTimer();
     }
 
     // --- SCRIPT STARTUP ---
+
+    // Debug: Show current time immediately
+    const debugNow = new Date();
+    console.log(`[TimeBlocker] Script started at: ${debugNow.toLocaleString()}`);
+    console.log(`[TimeBlocker] Current time: ${debugNow.getHours()}:${debugNow.getMinutes()}`);
 
     // Immediate check at document start
     checkTime();
