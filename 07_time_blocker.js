@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -13,17 +13,23 @@
 
     // --- SETTINGS ---
 
-    // Blocking interval #1: 13:30 to 18:00
+    // Blocking interval #1: 13:00 to 18:00 (same day)
     const blockStart1Hour = 13;
     const blockStart1Minute = 0;
     const blockEnd1Hour = 18;
     const blockEnd1Minute = 0;
 
-    // Blocking interval #2: 21:00 to 8:00 next day
+    // Blocking interval #2: 21:00 to 23:59 (same day)
     const blockStart2Hour = 21;
     const blockStart2Minute = 0;
-    const blockEnd2Hour = 8;
-    const blockEnd2Minute = 0;
+    const blockEnd2Hour = 23;
+    const blockEnd2Minute = 59;
+
+    // Blocking interval #3: 00:00 to 8:00 (next day)
+    const blockStart3Hour = 0;
+    const blockStart3Minute = 0;
+    const blockEnd3Hour = 8;
+    const blockEnd3Minute = 0;
 
     const warningMinutes = 20; // How many minutes before blocking to show timer
 
@@ -85,64 +91,78 @@
         return hours * 60 + minutes;
     }
 
-    // Function to check if current time is in blocking interval
+    // Function to check if current time is in any blocking interval
     function isInBlockingInterval(currentHour, currentMinute) {
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         
-        // First interval: 13:00 to 18:00
-        const start1Minutes = timeToMinutes(blockStart1Hour, blockStart1Minute);
-        const end1Minutes = timeToMinutes(blockEnd1Hour, blockEnd1Minute);
-        
-        // Second interval: 21:00 to 8:00 next day
-        const start2Minutes = timeToMinutes(blockStart2Hour, blockStart2Minute);
-        const end2Minutes = timeToMinutes(blockEnd2Hour, blockEnd2Minute);
-        
         // Debug logging
         console.log(`[TimeBlocker] Current time: ${currentHour}:${currentMinute} (${currentTimeInMinutes} minutes)`);
-        console.log(`[TimeBlocker] Interval 1: ${blockStart1Hour}:${blockStart1Minute} to ${blockEnd1Hour}:${blockEnd1Minute} (${start1Minutes} to ${end1Minutes})`);
-        console.log(`[TimeBlocker] Interval 2: ${blockStart2Hour}:${blockStart2Minute} to ${blockEnd2Hour}:${blockEnd2Minute} (${start2Minutes} to ${end2Minutes})`);
         
-        // Check first interval (same day)
+        // Check interval 1: 13:00 to 18:00
+        const start1Minutes = timeToMinutes(blockStart1Hour, blockStart1Minute);
+        const end1Minutes = timeToMinutes(blockEnd1Hour, blockEnd1Minute);
+        console.log(`[TimeBlocker] Interval 1: ${blockStart1Hour}:${blockStart1Minute} to ${blockEnd1Hour}:${blockEnd1Minute} (${start1Minutes} to ${end1Minutes})`);
+        
         if (currentTimeInMinutes >= start1Minutes && currentTimeInMinutes < end1Minutes) {
-            console.log(`[TimeBlocker] Blocked by interval 1`);
+            console.log(`[TimeBlocker] Blocked by interval 1 (13:00-18:00)`);
             return true;
         }
         
-        // Check second interval (spans midnight)
-        // For interval spanning midnight: we need to handle the case where start > end
-        if (start2Minutes > end2Minutes) {
-            // Interval spans midnight (e.g., 21:00 to 8:00)
-            if (currentTimeInMinutes >= start2Minutes || currentTimeInMinutes < end2Minutes) {
-                console.log(`[TimeBlocker] Blocked by interval 2 (spans midnight)`);
-                return true;
-            }
-        } else {
-            // Regular interval (e.g., 8:00 to 21:00)
-            if (currentTimeInMinutes >= start2Minutes && currentTimeInMinutes < end2Minutes) {
-                console.log(`[TimeBlocker] Blocked by interval 2 (regular)`);
-                return true;
-            }
+        // Check interval 2: 21:00 to 23:59
+        const start2Minutes = timeToMinutes(blockStart2Hour, blockStart2Minute);
+        const end2Minutes = timeToMinutes(blockEnd2Hour, blockEnd2Minute);
+        console.log(`[TimeBlocker] Interval 2: ${blockStart2Hour}:${blockStart2Minute} to ${blockEnd2Hour}:${blockEnd2Minute} (${start2Minutes} to ${end2Minutes})`);
+        
+        if (currentTimeInMinutes >= start2Minutes && currentTimeInMinutes < end2Minutes) {
+            console.log(`[TimeBlocker] Blocked by interval 2 (21:00-23:59)`);
+            return true;
+        }
+        
+        // Check interval 3: 00:00 to 8:00
+        const start3Minutes = timeToMinutes(blockStart3Hour, blockStart3Minute);
+        const end3Minutes = timeToMinutes(blockEnd3Hour, blockEnd3Minute);
+        console.log(`[TimeBlocker] Interval 3: ${blockStart3Hour}:${blockStart3Minute} to ${blockEnd3Hour}:${blockEnd3Minute} (${start3Minutes} to ${end3Minutes})`);
+        
+        if (currentTimeInMinutes >= start3Minutes && currentTimeInMinutes < end3Minutes) {
+            console.log(`[TimeBlocker] Blocked by interval 3 (00:00-8:00)`);
+            return true;
         }
         
         console.log(`[TimeBlocker] Not blocked`);
         return false;
     }
 
-    // Function to calculate time until blocking starts
+    // Function to calculate time until next blocking starts
     function getTimeUntilBlocking(currentHour, currentMinute) {
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         
-        // Time until first interval
-        const start1Minutes = timeToMinutes(blockStart1Hour, blockStart1Minute);
-        let timeUntilBlock1 = start1Minutes - currentTimeInMinutes;
-        if (timeUntilBlock1 < 0) timeUntilBlock1 = 24 * 60 + timeUntilBlock1; // Next day
+        // Calculate time until each interval starts
+        const intervals = [
+            { name: 'Interval 1', startHour: blockStart1Hour, startMinute: blockStart1Minute },
+            { name: 'Interval 2', startHour: blockStart2Hour, startMinute: blockStart2Minute },
+            { name: 'Interval 3', startHour: blockStart3Hour, startMinute: blockStart3Minute }
+        ];
         
-        // Time until second interval
-        const start2Minutes = timeToMinutes(blockStart2Hour, blockStart2Minute);
-        let timeUntilBlock2 = start2Minutes - currentTimeInMinutes;
-        if (timeUntilBlock2 < 0) timeUntilBlock2 = 24 * 60 + timeUntilBlock2; // Next day
+        let minTimeUntilBlock = Infinity;
+        let nextIntervalName = '';
         
-        return Math.min(timeUntilBlock1, timeUntilBlock2);
+        intervals.forEach(interval => {
+            const startMinutes = timeToMinutes(interval.startHour, interval.startMinute);
+            let timeUntilBlock = startMinutes - currentTimeInMinutes;
+            
+            // If negative, it means the interval starts tomorrow
+            if (timeUntilBlock < 0) {
+                timeUntilBlock = 24 * 60 + timeUntilBlock;
+            }
+            
+            if (timeUntilBlock < minTimeUntilBlock) {
+                minTimeUntilBlock = timeUntilBlock;
+                nextIntervalName = interval.name;
+            }
+        });
+        
+        console.log(`[TimeBlocker] Next blocking in ${minTimeUntilBlock} minutes (${nextIntervalName})`);
+        return minTimeUntilBlock;
     }
 
     // Main blocking logic
