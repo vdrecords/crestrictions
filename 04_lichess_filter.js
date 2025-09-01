@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         04_lichess_filter - Фильтр контента Lichess (только Блиц+Рапид)
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Показ только Блиц и Рапид на Lichess, скрытие кнопок участия и досок для других типов игр
 // @match        https://lichess.org/*
 // @grant        GM_addStyle
@@ -224,11 +224,10 @@
 
     // Enhanced function to hide chess board
     function hideBoardIfNeeded(isAllowed) {
-        // Only hide board on tournament pages (where game__tournament section exists)
-        const tournamentSection = document.querySelector('section.game__tournament');
-        const tournamentLinkSection = document.querySelector('section.game__tournament-link');
-        if (!tournamentSection && !tournamentLinkSection) {
-            console.log(`[LichessFilter] No tournament section found, skipping board hiding`);
+        // Only hide board on tournament pages (where tour__meta div exists)
+        const tourMetaDiv = document.querySelector('div.tour__meta');
+        if (!tourMetaDiv) {
+            console.log(`[LichessFilter] No tour__meta div found, skipping board hiding`);
             return false;
         }
 
