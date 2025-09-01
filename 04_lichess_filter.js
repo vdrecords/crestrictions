@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         04_lichess_filter - Фильтр контента Lichess (только Блиц+Рапид)
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Показ только Блиц и Рапид на Lichess, скрытие кнопок участия и досок для других типов игр
 // @match        https://lichess.org/*
 // @grant        GM_addStyle
@@ -156,14 +156,7 @@
             }
         }
 
-        // Strategy 5: Look for game type in any visible text on the page
-        const pageText = document.body.textContent;
-        for (const allowedType of allowedTypes) {
-            if (pageText.includes(allowedType)) {
-                console.log(`[LichessFilter] Detected game type from page text: ${allowedType}`);
-                return allowedType;
-            }
-        }
+        // Note: avoid scanning entire body text for performance reasons
 
         console.log(`[LichessFilter] No game type detected, assuming blocked`);
         return '';
@@ -171,46 +164,39 @@
 
     // Enhanced function to hide "Join" buttons with multiple strategies
     function hideJoinButtonsIfNeeded(isAllowed) {
-        if (isAllowed) return;
+        if (isAllowed) return false;
+
+        // Run only on pages that have tournament meta
+        const tourMetaDiv = document.querySelector('div.tour__meta');
+        if (!tourMetaDiv) return false;
 
         let changed = false;
+        const scope = tourMetaDiv.parentElement || tourMetaDiv;
 
         try {
-            // Strategy 1: XPath for Russian text
-            const xpath = "//button[contains(., 'Участвовать')]";
-            const iterator = document.evaluate(xpath, document, null, XPathResult.ANY_TYPE, null);
-            let btn = iterator.iterateNext();
-            while (btn) {
-                if (btn.style.display !== 'none') {
-                    btn.style.display = 'none';
+            // Strategy 1: XPath scoped to tournament area (RU)
+            const xpathRu = ".//button[contains(., 'Участвовать')]";
+            const iteratorRu = document.evaluate(xpathRu, scope, null, XPathResult.ANY_TYPE, null);
+            let btnRu = iteratorRu.iterateNext();
+            while (btnRu) {
+                if (btnRu.style.display !== 'none') {
+                    btnRu.style.display = 'none';
                     changed = true;
-                    console.log(`[LichessFilter] Hidden join button via XPath`);
+                    console.log(`[LichessFilter] Hidden join button (RU)`);
                 }
-                btn = iterator.iterateNext();
+                btnRu = iteratorRu.iterateNext();
             }
 
-            // Strategy 2: Look for any element with "Участвовать" text
-            const allElements = Array.from(document.querySelectorAll('*'));
-            for (const el of allElements) {
-                if (el.textContent && el.textContent.includes('Участвовать')) {
+            // Strategy 2: English equivalents, only actionable elements
+            const englishJoinTexts = ['Join', 'Join tournament', 'Participate'];
+            const actionable = Array.from(scope.querySelectorAll('button, a.button, a[href], [role="button"]'));
+            for (const el of actionable) {
+                const text = el.textContent || '';
+                if (text.includes('Участвовать') || englishJoinTexts.some(t => text.includes(t))) {
                     if (el.style.display !== 'none') {
                         el.style.display = 'none';
                         changed = true;
-                        console.log(`[LichessFilter] Hidden join element: ${el.tagName}`);
-                    }
-                }
-            }
-
-            // Strategy 3: Look for English equivalents
-            const englishJoinTexts = ['Join', 'Join tournament', 'Participate'];
-            for (const text of englishJoinTexts) {
-                for (const el of allElements) {
-                    if (el.textContent && el.textContent.includes(text)) {
-                        if (el.style.display !== 'none') {
-                            el.style.display = 'none';
-                            changed = true;
-                            console.log(`[LichessFilter] Hidden English join element: ${el.tagName} with text: ${text}`);
-                        }
+                        console.log(`[LichessFilter] Hidden join control: ${el.tagName}`);
                     }
                 }
             }
@@ -288,8 +274,9 @@
 
         console.log(`[LichessFilter] Game type: "${typeText}", Allowed: ${allowed}`);
 
-        // 1) Tournaments: hide "Join" button if not allowed
-        const joinButtonsHidden = hideJoinButtonsIfNeeded(allowed);
+        // 1) Tournaments: hide "Join" button if not allowed (only on tournament pages)
+        const isTournamentPage = !!document.querySelector('div.tour__meta');
+        const joinButtonsHidden = isTournamentPage ? hideJoinButtonsIfNeeded(allowed) : false;
 
         // 2) Games/rounds: hide board if not allowed
         const boardHidden = hideBoardIfNeeded(allowed);
