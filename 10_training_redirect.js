@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         10_training_redirect - Автоматический редирект на обучение
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.4
 // @description  Автоматический редирект на страницу обучения в 9:00 утра в будние дни с блокировкой неразрешённых доменов
 // @match        *://*/*
 // @grant        GM_getValue
@@ -15,7 +15,7 @@
     // --- SETTINGS ---
 
     // Master training mode toggle
-    const enableTrainingMode = false; // Set to false to completely disable training mode
+    const enableTrainingMode = true; // Set to false to completely disable training mode
 
     // Training mode settings
     const trainingRedirectURL = 'https://allcantrip.ru/lesson'; // Link for redirect at 9:00
