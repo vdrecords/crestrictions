@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         04_lichess_filter - Фильтр контента Lichess (только Блиц+Рапид)
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Показ только Блиц и Рапид на Lichess, скрытие кнопок участия и досок для других типов игр
 // @match        https://lichess.org/*
 // @grant        GM_addStyle
@@ -268,6 +268,13 @@
     // Enhanced main procedure with better logging
     function applyRules() {
         console.log(`[LichessFilter] Applying rules...`);
+        
+        // Special case: Puzzle Racer page should always be allowed
+        const currentPath = window.location.pathname;
+        if (currentPath === '/racer') {
+            console.log(`[LichessFilter] Puzzle Racer page detected - allowing access`);
+            return { allowed: true, joinButtonsHidden: false, boardHidden: false, trainingClicksBlocked: 0 };
+        }
         
         const typeText = detectGameType();
         const allowed = isAllowedText(typeText);
