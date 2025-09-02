@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -537,47 +537,11 @@
 
         // Main logic
         
-        // Check if training is completed today (compatibility with script #10)
-        const trainingCompletedKey = `training_completed_${dateKey}`;
-        const isTrainingCompleted = GM_getValue(trainingCompletedKey, 'false') === 'true';
-        
-        // Check if we're in training time (9:00-10:00 on weekdays)
-        const now = new Date();
-        const day = now.getDay(); // 0-Sun, 1-Mon, ..., 6-Sat
-        const hour = now.getHours();
-        const isWeekday = day >= 1 && day <= 5; // Monday to Friday
-        const isTrainingTime = isWeekday && hour >= 9 && hour < 10;
-        
-        console.log(`[RacerTracker] Training check - Completed: ${isTrainingCompleted}, Time: ${hour}:00, Weekday: ${isWeekday}, Training time: ${isTrainingTime}`);
-        
-        // Additional training compatibility function
-        function checkTrainingCompatibility() {
-            if (isTrainingCompleted) {
-                console.log(`[RacerTracker] Training completed today - allowing all pages`);
-                if (document.body && document.body.style.visibility === 'hidden') {
-                    document.body.style.visibility = '';
-                }
-                return true;
-            }
-            return false;
-        }
-        
         // For non-racer pages: check puzzle count and redirect if needed
         if (isOtherPage) {
             console.log("[RacerTracker] Processing non-racer page");
             
-            // Check training compatibility first
-            if (checkTrainingCompatibility()) {
-                console.log(`[RacerTracker] Training compatibility check passed - allowing page`);
-                return;
-            }
-            
-            // Skip blocking if training is completed today OR if we're in training time
-            if (isTrainingCompleted || isTrainingTime) {
-                console.log(`[RacerTracker] Skipping puzzle check - Training completed: ${isTrainingCompleted}, In training time: ${isTrainingTime}`);
-                if (document.body) document.body.style.visibility = '';
-                return;
-            }
+            // Proceed with racer progress check without training mode considerations
             
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
             const unlockRemaining = Math.max(minTasksPerDay - racerPuzzles, 0);
@@ -729,26 +693,7 @@
                 console.log('Current race status:', status);
                 return status;
             },
-            getTrainingStatus: () => {
-                const trainingCompletedKey = `training_completed_${dateKey}`;
-                const isTrainingCompleted = GM_getValue(trainingCompletedKey, 'false') === 'true';
-                const now = new Date();
-                const day = now.getDay();
-                const hour = now.getHours();
-                const isWeekday = day >= 1 && day <= 5;
-                const isTrainingTime = isWeekday && hour >= 9 && hour < 10;
-                
-                const status = {
-                    dateKey,
-                    isTrainingCompleted,
-                    currentTime: `${hour}:00`,
-                    isWeekday,
-                    isTrainingTime,
-                    trainingCompletedKey
-                };
-                console.log('Training status:', status);
-                return status;
-            }
+            
         };
         
         console.log(`[RacerTracker] Global debug functions available: window.racerDebugTracker`);
