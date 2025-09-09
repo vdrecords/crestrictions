@@ -93,6 +93,17 @@
 
     // Function to check if current time is in any blocking interval
     function isInBlockingInterval(currentHour, currentMinute) {
+        const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        // Weekdays (Mon-Fri): block everything EXCEPT 16:00-20:00
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+            const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
+            const freeStart = timeToMinutes(16, 0);
+            const freeEnd = timeToMinutes(20, 0);
+            const inFreeWindow = currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd;
+            console.log(`[TimeBlocker] Weekday policy active. Free window 16:00-20:00. In free window: ${inFreeWindow}`);
+            return !inFreeWindow; // block outside free window
+        }
+        // Weekends: use legacy intervals
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         
         // Debug logging
@@ -134,6 +145,21 @@
 
     // Function to calculate time until next blocking starts
     function getTimeUntilBlocking(currentHour, currentMinute) {
+        const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        // Weekdays (Mon-Fri): Only free window 16:00-20:00, show time left until 20:00 when inside it
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+            const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
+            const freeStart = timeToMinutes(16, 0);
+            const freeEnd = timeToMinutes(20, 0);
+            if (currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd) {
+                const remaining = freeEnd - currentTimeInMinutes;
+                console.log(`[TimeBlocker] Weekday free window active. Blocking resumes in ${remaining} minutes`);
+                return remaining;
+            }
+            // Already blocked outside free window
+            return 0;
+        }
+        // Weekends: use legacy intervals
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         
         // Calculate time until each interval starts

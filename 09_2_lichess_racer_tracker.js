@@ -16,7 +16,14 @@
     // ==============================
     // === Core Settings ===
     // ==============================
-    let   minTasksPerDay     = 800;        // Minimum puzzles per day
+    let   minTasksPerDay     = 800;        // Minimum puzzles per day (default for weekends)
+    // Weekday/weekend dynamic target: Mon-Fri -> 400, Sat/Sun -> 800
+    (function updateDailyTargetByDay() {
+        const day = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const isWeekend = (day === 0 || day === 6);
+        minTasksPerDay = isWeekend ? 800 : 400;
+        console.log(`[RacerTracker] Daily target set by weekday/weekend: ${minTasksPerDay}`);
+    })();
     
     // For compatibility with message control script (uses same GM key format)
     const COMPATIBILITY_ID   = 72;         // Fixed ID for GM key compatibility
@@ -107,6 +114,13 @@
         console.log(`[RacerTracker] Date check - Saved: '${savedDate}', Current: '${dateKey}'`);
         
         if (savedDate !== dateKey) {
+            // Re-evaluate target at day change
+            (function updateDailyTargetByDay() {
+                const day = new Date().getDay();
+                const isWeekend = (day === 0 || day === 6);
+                minTasksPerDay = isWeekend ? 800 : 400;
+                console.log(`[RacerTracker] (Midnight reset) Daily target set: ${minTasksPerDay}`);
+            })();
             if (savedDate === null) {
                 console.log(`[RacerTracker] First run - initializing date tracking for ${dateKey}`);
                 GM_setValue('racer_tracker_date', dateKey);
