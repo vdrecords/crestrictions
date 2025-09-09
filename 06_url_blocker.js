@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         06_url_blocker - Блокировщик URL и список доменов
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Блокировка нежелательных сайтов и разрешение только определённых доменов с режимом турнира
 // @match        *://*/*
 // @grant        none
@@ -77,7 +77,8 @@
             'start.bizon365.ru',
             'worldchess.com',
             'chess.com',
-            'lichess.org'
+            'lichess.org',
+            'deepl.com'
         ];
 
         const host = window.location.hostname.toLowerCase();
