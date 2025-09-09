@@ -94,7 +94,7 @@
     // Function to check if current time is in any blocking interval
     function isInBlockingInterval(currentHour, currentMinute) {
         const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        // Weekdays (Mon-Fri): block everything EXCEPT 16:00-20:00
+        // Weekdays (Mon-Fri): block everything EXCEPT 16:00-20:00 (unchanged)
         if (dayOfWeek >= 1 && dayOfWeek <= 5) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
             const freeStart = timeToMinutes(16, 0);
@@ -103,7 +103,22 @@
             console.log(`[TimeBlocker] Weekday policy active. Free window 16:00-20:00. In free window: ${inFreeWindow}`);
             return !inFreeWindow; // block outside free window
         }
-        // Weekends: use legacy intervals
+        // Weekends: custom windows
+        if (dayOfWeek === 6) { // Saturday: 09:00-12:00 and 19:00-21:00 free
+            const t = timeToMinutes(currentHour, currentMinute);
+            const saturdayFree = (t >= timeToMinutes(9,0) && t < timeToMinutes(12,0)) ||
+                                 (t >= timeToMinutes(19,0) && t < timeToMinutes(21,0));
+            console.log(`[TimeBlocker] Saturday policy. Free windows 09:00-12:00, 19:00-21:00. In free: ${saturdayFree}`);
+            return !saturdayFree;
+        }
+        if (dayOfWeek === 0) { // Sunday: 10:00-13:00 and 19:00-21:00 free
+            const t = timeToMinutes(currentHour, currentMinute);
+            const sundayFree = (t >= timeToMinutes(10,0) && t < timeToMinutes(13,0)) ||
+                               (t >= timeToMinutes(19,0) && t < timeToMinutes(21,0));
+            console.log(`[TimeBlocker] Sunday policy. Free windows 10:00-13:00, 19:00-21:00. In free: ${sundayFree}`);
+            return !sundayFree;
+        }
+        // Fallback to legacy (shouldn't reach here)
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         
         // Debug logging
@@ -159,7 +174,28 @@
             // Already blocked outside free window
             return 0;
         }
-        // Weekends: use legacy intervals
+        // Weekends: show time until next block only if in a free window
+        if (dayOfWeek === 6) { // Saturday
+            const t = timeToMinutes(currentHour, currentMinute);
+            const morningStart = timeToMinutes(9,0);
+            const morningEnd   = timeToMinutes(12,0);
+            const eveningStart = timeToMinutes(19,0);
+            const eveningEnd   = timeToMinutes(21,0);
+            if (t >= morningStart && t < morningEnd) return morningEnd - t;
+            if (t >= eveningStart && t < eveningEnd) return eveningEnd - t;
+            return 0;
+        }
+        if (dayOfWeek === 0) { // Sunday
+            const t = timeToMinutes(currentHour, currentMinute);
+            const morningStart = timeToMinutes(10,0);
+            const morningEnd   = timeToMinutes(13,0);
+            const eveningStart = timeToMinutes(19,0);
+            const eveningEnd   = timeToMinutes(21,0);
+            if (t >= morningStart && t < morningEnd) return morningEnd - t;
+            if (t >= eveningStart && t < eveningEnd) return eveningEnd - t;
+            return 0;
+        }
+        // Fallback to legacy (shouldn't reach here)
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         
         // Calculate time until each interval starts

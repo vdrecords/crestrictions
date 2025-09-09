@@ -16,12 +16,17 @@
     // ==============================
     // === Core Settings ===
     // ==============================
-    let   minTasksPerDay     = 800;        // Minimum puzzles per day (default for weekends)
-    // Weekday/weekend dynamic target: Mon-Fri -> 400, Sat/Sun -> 800
+    let   minTasksPerDay     = 800;        // Minimum puzzles per day (default)
+    // Dynamic target by day: Mon-Tue -> 200, Wed-Fri -> 400, Sat/Sun -> 1000
     (function updateDailyTargetByDay() {
         const day = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        const isWeekend = (day === 0 || day === 6);
-        minTasksPerDay = isWeekend ? 800 : 400;
+        if (day === 1 || day === 2) {
+            minTasksPerDay = 200; // Mon-Tue
+        } else if (day === 0 || day === 6) {
+            minTasksPerDay = 1000; // Sun or Sat
+        } else {
+            minTasksPerDay = 400; // Wed-Fri
+        }
         console.log(`[RacerTracker] Daily target set by weekday/weekend: ${minTasksPerDay}`);
     })();
     
@@ -117,8 +122,13 @@
             // Re-evaluate target at day change
             (function updateDailyTargetByDay() {
                 const day = new Date().getDay();
-                const isWeekend = (day === 0 || day === 6);
-                minTasksPerDay = isWeekend ? 800 : 400;
+                if (day === 1 || day === 2) {
+                    minTasksPerDay = 200; // Mon-Tue
+                } else if (day === 0 || day === 6) {
+                    minTasksPerDay = 1000; // Sun or Sat
+                } else {
+                    minTasksPerDay = 400; // Wed-Fri
+                }
                 console.log(`[RacerTracker] (Midnight reset) Daily target set: ${minTasksPerDay}`);
             })();
             if (savedDate === null) {
