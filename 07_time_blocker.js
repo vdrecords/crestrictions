@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -104,16 +104,16 @@
             return !inFreeWindow; // block outside free window
         }
         // Weekends: custom windows
-        if (dayOfWeek === 6) { // Saturday: 09:00-12:00 and 19:00-21:00 free
+        if (dayOfWeek === 6) { // Saturday: 08:00-12:00 and 19:00-21:00 free
             const t = timeToMinutes(currentHour, currentMinute);
-            const saturdayFree = (t >= timeToMinutes(9,0) && t < timeToMinutes(12,0)) ||
+            const saturdayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(12,0)) ||
                                  (t >= timeToMinutes(19,0) && t < timeToMinutes(21,0));
-            console.log(`[TimeBlocker] Saturday policy. Free windows 09:00-12:00, 19:00-21:00. In free: ${saturdayFree}`);
+            console.log(`[TimeBlocker] Saturday policy. Free windows 08:00-12:00, 19:00-21:00. In free: ${saturdayFree}`);
             return !saturdayFree;
         }
-        if (dayOfWeek === 0) { // Sunday: 10:00-13:00 and 19:00-21:00 free
+        if (dayOfWeek === 0) { // Sunday: 08:00-12:00 and 19:00-21:00 free
             const t = timeToMinutes(currentHour, currentMinute);
-            const sundayFree = (t >= timeToMinutes(10,0) && t < timeToMinutes(13,0)) ||
+            const sundayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(12,0)) ||
                                (t >= timeToMinutes(19,0) && t < timeToMinutes(21,0));
             console.log(`[TimeBlocker] Sunday policy. Free windows 10:00-13:00, 19:00-21:00. In free: ${sundayFree}`);
             return !sundayFree;
@@ -177,7 +177,7 @@
         // Weekends: show time until next block only if in a free window
         if (dayOfWeek === 6) { // Saturday
             const t = timeToMinutes(currentHour, currentMinute);
-            const morningStart = timeToMinutes(9,0);
+            const morningStart = timeToMinutes(8,0);
             const morningEnd   = timeToMinutes(12,0);
             const eveningStart = timeToMinutes(19,0);
             const eveningEnd   = timeToMinutes(21,0);
@@ -187,8 +187,8 @@
         }
         if (dayOfWeek === 0) { // Sunday
             const t = timeToMinutes(currentHour, currentMinute);
-            const morningStart = timeToMinutes(10,0);
-            const morningEnd   = timeToMinutes(13,0);
+            const morningStart = timeToMinutes(8,0);
+            const morningEnd   = timeToMinutes(12,0);
             const eveningStart = timeToMinutes(19,0);
             const eveningEnd   = timeToMinutes(21,0);
             if (t >= morningStart && t < morningEnd) return morningEnd - t;
