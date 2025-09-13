@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -94,28 +94,35 @@
     // Function to check if current time is in any blocking interval
     function isInBlockingInterval(currentHour, currentMinute) {
         const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        // Weekdays (Mon-Fri): block everything EXCEPT 16:00-20:00 (unchanged)
-        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        // Weekdays Mon-Thu: block everything EXCEPT 16:00-20:00
+        if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
             const freeStart = timeToMinutes(16, 0);
             const freeEnd = timeToMinutes(20, 0);
             const inFreeWindow = currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd;
-            console.log(`[TimeBlocker] Weekday policy active. Free window 16:00-20:00. In free window: ${inFreeWindow}`);
+            console.log(`[TimeBlocker] Mon-Thu policy. Free window 16:00-20:00. In free window: ${inFreeWindow}`);
             return !inFreeWindow; // block outside free window
         }
-        // Weekends: custom windows
-        if (dayOfWeek === 6) { // Saturday: 08:00-12:00 and 19:00-21:00 free
+        // Friday: block from 21:00
+        if (dayOfWeek === 5) { // Friday
             const t = timeToMinutes(currentHour, currentMinute);
-            const saturdayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(12,0)) ||
-                                 (t >= timeToMinutes(19,0) && t < timeToMinutes(21,0));
-            console.log(`[TimeBlocker] Saturday policy. Free windows 08:00-12:00, 19:00-21:00. In free: ${saturdayFree}`);
+            const isBlocked = t >= timeToMinutes(21, 0);
+            console.log(`[TimeBlocker] Friday policy. Block after 21:00: ${isBlocked}`);
+            return isBlocked;
+        }
+        // Weekends: custom windows
+        if (dayOfWeek === 6) { // Saturday: 08:00-13:00 and 18:00-21:00 free
+            const t = timeToMinutes(currentHour, currentMinute);
+            const saturdayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(13,0)) ||
+                                 (t >= timeToMinutes(18,0) && t < timeToMinutes(21,0));
+            console.log(`[TimeBlocker] Saturday policy. Free windows 08:00-13:00, 18:00-21:00. In free: ${saturdayFree}`);
             return !saturdayFree;
         }
-        if (dayOfWeek === 0) { // Sunday: 08:00-12:00 and 19:00-21:00 free
+        if (dayOfWeek === 0) { // Sunday: 08:00-13:00 and 18:00-21:00 free
             const t = timeToMinutes(currentHour, currentMinute);
-            const sundayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(12,0)) ||
-                               (t >= timeToMinutes(19,0) && t < timeToMinutes(21,0));
-            console.log(`[TimeBlocker] Sunday policy. Free windows 10:00-13:00, 19:00-21:00. In free: ${sundayFree}`);
+            const sundayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(13,0)) ||
+                               (t >= timeToMinutes(18,0) && t < timeToMinutes(21,0));
+            console.log(`[TimeBlocker] Sunday policy. Free windows 08:00-13:00, 18:00-21:00. In free: ${sundayFree}`);
             return !sundayFree;
         }
         // Fallback to legacy (shouldn't reach here)
@@ -161,25 +168,36 @@
     // Function to calculate time until next blocking starts
     function getTimeUntilBlocking(currentHour, currentMinute) {
         const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        // Weekdays (Mon-Fri): Only free window 16:00-20:00, show time left until 20:00 when inside it
-        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        // Mon-Thu: Only free window 16:00-20:00, show time left until 20:00 when inside it
+        if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
             const freeStart = timeToMinutes(16, 0);
             const freeEnd = timeToMinutes(20, 0);
             if (currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd) {
                 const remaining = freeEnd - currentTimeInMinutes;
-                console.log(`[TimeBlocker] Weekday free window active. Blocking resumes in ${remaining} minutes`);
+                console.log(`[TimeBlocker] Mon-Thu free window active. Blocking resumes in ${remaining} minutes`);
                 return remaining;
             }
             // Already blocked outside free window
+            return 0;
+        }
+        // Friday: show minutes until 21:00 when before it
+        if (dayOfWeek === 5) {
+            const t = timeToMinutes(currentHour, currentMinute);
+            const blockAt = timeToMinutes(21,0);
+            if (t < blockAt) {
+                const remaining = blockAt - t;
+                console.log(`[TimeBlocker] Friday countdown. Blocking in ${remaining} minutes`);
+                return remaining;
+            }
             return 0;
         }
         // Weekends: show time until next block only if in a free window
         if (dayOfWeek === 6) { // Saturday
             const t = timeToMinutes(currentHour, currentMinute);
             const morningStart = timeToMinutes(8,0);
-            const morningEnd   = timeToMinutes(12,0);
-            const eveningStart = timeToMinutes(19,0);
+            const morningEnd   = timeToMinutes(13,0);
+            const eveningStart = timeToMinutes(18,0);
             const eveningEnd   = timeToMinutes(21,0);
             if (t >= morningStart && t < morningEnd) return morningEnd - t;
             if (t >= eveningStart && t < eveningEnd) return eveningEnd - t;
@@ -188,8 +206,8 @@
         if (dayOfWeek === 0) { // Sunday
             const t = timeToMinutes(currentHour, currentMinute);
             const morningStart = timeToMinutes(8,0);
-            const morningEnd   = timeToMinutes(12,0);
-            const eveningStart = timeToMinutes(19,0);
+            const morningEnd   = timeToMinutes(13,0);
+            const eveningStart = timeToMinutes(18,0);
             const eveningEnd   = timeToMinutes(21,0);
             if (t >= morningStart && t < morningEnd) return morningEnd - t;
             if (t >= eveningStart && t < eveningEnd) return eveningEnd - t;
