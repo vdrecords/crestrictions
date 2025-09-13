@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.8
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -17,17 +17,17 @@
     // === Core Settings ===
     // ==============================
     let   minTasksPerDay     = 800;        // Minimum puzzles per day (default)
-    // Dynamic target by day: Mon-Tue -> 200, Wed-Fri -> 400, Sat/Sun -> 1000
+    // Dynamic target by day: Mon-Thu -> 400, Fri -> 200, Sat/Sun -> 800
     (function updateDailyTargetByDay() {
         const day = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        if (day === 1 || day === 2) {
-            minTasksPerDay = 400; // Mon-Tue
-        } else if (day === 0 || day === 6) {
-            minTasksPerDay = 800; // Sun or Sat
-        } else {
-            minTasksPerDay = 400; // Wed-Fri
+        if (day >= 1 && day <= 4) { // Mon-Thu
+            minTasksPerDay = 400;
+        } else if (day === 5) { // Fri
+            minTasksPerDay = 200;
+        } else { // Sat/Sun
+            minTasksPerDay = 800;
         }
-        console.log(`[RacerTracker] Daily target set by weekday/weekend: ${minTasksPerDay}`);
+        console.log(`[RacerTracker] Daily target set: ${minTasksPerDay}`);
     })();
     
     // For compatibility with message control script (uses same GM key format)
@@ -93,9 +93,8 @@
             pathname.startsWith('/racer/')
         );
         
-        // Check if this is a Lichess page that should be allowed (inbox, forums, etc.)
+        // Check if this is a Lichess page that should be allowed (forums, teams, study, analysis)
         const isLichessUtilityPage = hostname === 'lichess.org' && (
-            pathname.startsWith('/inbox/') ||
             pathname.startsWith('/forum/') ||
             pathname.startsWith('/team/') ||
             pathname.startsWith('/study/') ||
@@ -122,12 +121,12 @@
             // Re-evaluate target at day change
             (function updateDailyTargetByDay() {
                 const day = new Date().getDay();
-                if (day === 1 || day === 2) {
-                    minTasksPerDay = 200; // Mon-Tue
-                } else if (day === 0 || day === 6) {
-                    minTasksPerDay = 1000; // Sun or Sat
-                } else {
-                    minTasksPerDay = 400; // Wed-Fri
+                if (day >= 1 && day <= 4) { // Mon-Thu
+                    minTasksPerDay = 400;
+                } else if (day === 5) { // Fri
+                    minTasksPerDay = 200;
+                } else { // Sat/Sun
+                    minTasksPerDay = 800;
                 }
                 console.log(`[RacerTracker] (Midnight reset) Daily target set: ${minTasksPerDay}`);
             })();
