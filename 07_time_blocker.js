@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -41,10 +41,22 @@
     function applyPreBlockMask() {
         if (preBlockMaskApplied) return;
         const html = document.documentElement;
-        if (!html) return;
-        html.style.visibility = 'hidden';
-        html.style.opacity = '0';
-        html.style.transition = 'none';
+        if (!html) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('readystatechange', applyPreBlockMask, { once: true });
+            }
+            return;
+        }
+        html.style.setProperty('visibility', 'hidden', 'important');
+        html.style.setProperty('opacity', '0', 'important');
+        html.style.setProperty('transition', 'none', 'important');
+
+        const body = document.body;
+        if (body) {
+            body.style.setProperty('visibility', 'hidden', 'important');
+            body.style.setProperty('opacity', '0', 'important');
+        }
+
         preBlockMaskApplied = true;
     }
 
@@ -56,6 +68,13 @@
             html.style.removeProperty('opacity');
             html.style.removeProperty('transition');
         }
+
+        const body = document.body;
+        if (body) {
+            body.style.removeProperty('visibility');
+            body.style.removeProperty('opacity');
+        }
+
         preBlockMaskApplied = false;
     }
 
