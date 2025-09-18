@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      1.10
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -80,6 +80,15 @@
         preBlockMaskApplied = false;
     }
 
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     // Function to create and update timer
     function showWarningTimer(message) {
         let timerElement = document.getElementById('blocker-timer');
@@ -112,56 +121,63 @@
         }
     }
 
+    function renderBlockedDocument(title, message) {
+        preBlockMaskApplied = false;
+        const safeTitle = escapeHtml(title || '');
+        const safeMessage = message ? `<p>${escapeHtml(message)}</p>` : '';
+
+        const blockedHtml = `<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>${safeTitle}</title>
+        <style>
+            html, body {
+                height: 100%;
+                margin: 0;
+            }
+            body {
+                background-color: #333;
+                color: #fff;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                font-family: Arial, sans-serif;
+                text-align: center;
+                padding: 20px;
+            }
+            h1 {
+                font-size: 3em;
+                margin: 0 0 16px 0;
+            }
+            p {
+                font-size: 1.2em;
+                margin: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>${safeTitle}</h1>
+        ${safeMessage}
+    </body>
+</html>`;
+
+        document.open();
+        document.write(blockedHtml);
+        document.close();
+    }
+
     // Function to block page
     function blockPage(title, message) {
-        if (mainCheckInterval) clearInterval(mainCheckInterval);
+        if (mainCheckInterval) {
+            clearInterval(mainCheckInterval);
+            mainCheckInterval = null;
+        }
 
         applyPreBlockMask();
         window.stop();
-
-        const html = document.documentElement;
-        if (!html) {
-            clearPreBlockMask();
-            return;
-        }
-
-        html.innerHTML = `
-            <head>
-                <meta charset="utf-8" />
-                <title>${title}</title>
-                <style>
-                    html, body {
-                        height: 100%;
-                        margin: 0;
-                    }
-                    body {
-                        background-color: #333;
-                        color: #fff;
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        font-family: Arial, sans-serif;
-                        text-align: center;
-                        padding: 20px;
-                    }
-                    h1 {
-                        font-size: 3em;
-                        margin: 0 0 16px 0;
-                    }
-                    p {
-                        font-size: 1.2em;
-                        margin: 0;
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>${title}</h1>
-                ${message ? `<p>${message}</p>` : ''}
-            </body>
-        `;
-
-        clearPreBlockMask();
+        renderBlockedDocument(title, message);
     }
 
     // Function to convert time to minutes since midnight
@@ -368,8 +384,12 @@
     const initialShouldBlock = isInBlockingInterval(debugNow.getHours(), debugNow.getMinutes(), initialDayOfWeek);
 
     if (initialShouldBlock) {
-        applyPreBlockMask();
+        window.stop();
+        renderBlockedDocument('Time is up');
+        return;
     }
+
+    clearPreBlockMask();
 
     // Immediate check at document start
     checkTime({
