@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.10
+// @version      1.11
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -35,58 +35,21 @@
 
     // --- END SETTINGS ---
 
+    const STYLE_ID = 'time-blocker-style';
+    const OVERLAY_ID = 'time-blocker-overlay';
+    const BLOCK_CLASS = 'time-blocker-blocked';
+    const INIT_CLASS = 'time-blocker-init';
+
     let mainCheckInterval = null; // Variable for main check interval
-    let preBlockMaskApplied = false; // Remember if we hid the document before blocking
+    let currentlyBlocked = false;
+    let overlayElements = null;
 
-    applyPreBlockMask();
+    injectBaseStyle();
+    ensureOverlay();
 
-    function applyPreBlockMask() {
-        if (preBlockMaskApplied) return;
-        const html = document.documentElement;
-        if (!html) {
-            if (document.readyState === 'loading') {
-                document.addEventListener('readystatechange', applyPreBlockMask, { once: true });
-            }
-            return;
-        }
-        html.style.setProperty('visibility', 'hidden', 'important');
-        html.style.setProperty('opacity', '0', 'important');
-        html.style.setProperty('transition', 'none', 'important');
-
-        const body = document.body;
-        if (body) {
-            body.style.setProperty('visibility', 'hidden', 'important');
-            body.style.setProperty('opacity', '0', 'important');
-        }
-
-        preBlockMaskApplied = true;
-    }
-
-    function clearPreBlockMask() {
-        if (!preBlockMaskApplied) return;
-        const html = document.documentElement;
-        if (html) {
-            html.style.removeProperty('visibility');
-            html.style.removeProperty('opacity');
-            html.style.removeProperty('transition');
-        }
-
-        const body = document.body;
-        if (body) {
-            body.style.removeProperty('visibility');
-            body.style.removeProperty('opacity');
-        }
-
-        preBlockMaskApplied = false;
-    }
-
-    function escapeHtml(str) {
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
+    const htmlRoot = document.documentElement;
+    if (htmlRoot) {
+        htmlRoot.classList.add(INIT_CLASS);
     }
 
     // Function to create and update timer
@@ -121,63 +84,96 @@
         }
     }
 
-    function renderBlockedDocument(title, message) {
-        preBlockMaskApplied = false;
-        const safeTitle = escapeHtml(title || '');
-        const safeMessage = message ? `<p>${escapeHtml(message)}</p>` : '';
-
-        const blockedHtml = `<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8" />
-        <title>${safeTitle}</title>
-        <style>
-            html, body {
-                height: 100%;
-                margin: 0;
-            }
-            body {
-                background-color: #333;
-                color: #fff;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                font-family: Arial, sans-serif;
-                text-align: center;
-                padding: 20px;
-            }
-            h1 {
-                font-size: 3em;
-                margin: 0 0 16px 0;
-            }
-            p {
-                font-size: 1.2em;
-                margin: 0;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>${safeTitle}</h1>
-        ${safeMessage}
-    </body>
-</html>`;
-
-        document.open();
-        document.write(blockedHtml);
-        document.close();
+    function injectBaseStyle() {
+        if (document.getElementById(STYLE_ID)) return;
+        const style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = `
+html.${INIT_CLASS} body { display: none !important; }
+html.${BLOCK_CLASS} body { display: none !important; }
+#${OVERLAY_ID} {
+    display: none;
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    background-color: #333;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 20px;
+    z-index: 2147483647;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+#${OVERLAY_ID} h1 {
+    font-size: 3em;
+    margin: 0 0 16px 0;
+}
+#${OVERLAY_ID} p {
+    font-size: 1.2em;
+    margin: 0;
+}
+html.${BLOCK_CLASS} #${OVERLAY_ID} {
+    display: flex !important;
+}
+`;
+        const head = document.head || document.documentElement;
+        head.appendChild(style);
     }
 
-    // Function to block page
-    function blockPage(title, message) {
-        if (mainCheckInterval) {
-            clearInterval(mainCheckInterval);
-            mainCheckInterval = null;
+    function ensureOverlay() {
+        if (overlayElements) return overlayElements;
+        const existing = document.getElementById(OVERLAY_ID);
+        const container = existing || document.createElement('div');
+        container.id = OVERLAY_ID;
+        let titleEl = container.querySelector('h1');
+        let messageEl = container.querySelector('p');
+
+        if (!titleEl) {
+            titleEl = document.createElement('h1');
+            container.appendChild(titleEl);
+        }
+        if (!messageEl) {
+            messageEl = document.createElement('p');
+            container.appendChild(messageEl);
         }
 
-        applyPreBlockMask();
-        window.stop();
-        renderBlockedDocument(title, message);
+        if (!existing) {
+            const parent = document.body || document.documentElement;
+            parent.appendChild(container);
+        }
+
+        overlayElements = { container, title: titleEl, message: messageEl };
+        return overlayElements;
+    }
+
+    function setBlockedState(title, message) {
+        const html = document.documentElement;
+        if (!html) return;
+        const overlay = ensureOverlay();
+        overlay.title.textContent = title || 'Time is up';
+        if (message) {
+            overlay.message.textContent = message;
+            overlay.message.style.display = 'block';
+        } else {
+            overlay.message.textContent = '';
+            overlay.message.style.display = 'none';
+        }
+
+        if (!currentlyBlocked) {
+            window.stop();
+        }
+        html.classList.add(BLOCK_CLASS);
+        currentlyBlocked = true;
+    }
+
+    function setAllowedState() {
+        const html = document.documentElement;
+        if (!html) return;
+        html.classList.remove(BLOCK_CLASS);
+        currentlyBlocked = false;
     }
 
     // Function to convert time to minutes since midnight
@@ -354,9 +350,12 @@
         // Check if we're in blocking interval
         if (shouldBlock) {
             console.log(`[TimeBlocker] BLOCKING PAGE - Time is up`);
-            blockPage('Time is up');
+            setBlockedState('Time is up');
+            removeWarningTimer();
             return;
         }
+
+        setAllowedState();
 
         // Check if blocking time is approaching soon
         const timeUntilBlock = getTimeUntilBlocking(currentHour, currentMinute, dayOfWeek);
@@ -364,13 +363,11 @@
         if (timeUntilBlock > 0 && timeUntilBlock <= warningMinutes) {
             console.log(`[TimeBlocker] Showing warning timer: ${timeUntilBlock} minutes until blocking`);
             showWarningTimer(`Until blocking: ${timeUntilBlock} min.`);
-            clearPreBlockMask();
             return;
         }
 
         console.log(`[TimeBlocker] No blocking needed, removing timer if exists`);
         removeWarningTimer();
-        clearPreBlockMask();
     }
 
     // --- SCRIPT STARTUP ---
@@ -384,14 +381,16 @@
     const initialShouldBlock = isInBlockingInterval(debugNow.getHours(), debugNow.getMinutes(), initialDayOfWeek);
 
     if (initialShouldBlock) {
-        window.stop();
-        renderBlockedDocument('Time is up');
-        return;
+        setBlockedState('Time is up');
+    } else {
+        setAllowedState();
     }
 
-    clearPreBlockMask();
+    if (htmlRoot) {
+        htmlRoot.classList.remove(INIT_CLASS);
+    }
 
-    // Immediate check at document start
+    // Immediate check at document start to update warnings / transitions
     checkTime({
         now: debugNow,
         dayOfWeek: initialDayOfWeek,
