@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.12
+// @version      1.13
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -35,23 +35,14 @@
 
     // --- END SETTINGS ---
 
-    const STYLE_ID = 'time-blocker-style';
     const OVERLAY_ID = 'time-blocker-overlay';
-    const BLOCK_CLASS = 'time-blocker-blocked';
-    const INIT_CLASS = 'time-blocker-init';
+    const ALLOWED_CLASS = 'time-blocker-allowed';
 
     let mainCheckInterval = null; // Variable for main check interval
     let currentlyBlocked = false;
     let overlayElements = null;
 
-    injectBaseStyle();
     ensureOverlay();
-
-    const htmlRoot = document.documentElement;
-    if (htmlRoot) {
-        htmlRoot.classList.add(INIT_CLASS);
-        htmlRoot.style.setProperty('display', 'none', 'important');
-    }
 
     // Function to create and update timer
     function showWarningTimer(message) {
@@ -85,45 +76,6 @@
         }
     }
 
-    function injectBaseStyle() {
-        if (document.getElementById(STYLE_ID)) return;
-        const style = document.createElement('style');
-        style.id = STYLE_ID;
-        style.textContent = `
-html.${INIT_CLASS} body { display: none !important; }
-html.${BLOCK_CLASS} body { display: none !important; }
-#${OVERLAY_ID} {
-    display: none;
-    position: fixed;
-    inset: 0;
-    margin: 0;
-    background-color: #333;
-    color: #fff;
-    font-family: Arial, sans-serif;
-    text-align: center;
-    padding: 20px;
-    z-index: 2147483647;
-    box-sizing: border-box;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-}
-#${OVERLAY_ID} h1 {
-    font-size: 3em;
-    margin: 0 0 16px 0;
-}
-#${OVERLAY_ID} p {
-    font-size: 1.2em;
-    margin: 0;
-}
-html.${BLOCK_CLASS} #${OVERLAY_ID} {
-    display: flex !important;
-}
-`;
-        const head = document.head || document.documentElement;
-        head.appendChild(style);
-    }
-
     function ensureOverlay() {
         if (overlayElements) return overlayElements;
         const existing = document.getElementById(OVERLAY_ID);
@@ -140,6 +92,28 @@ html.${BLOCK_CLASS} #${OVERLAY_ID} {
             messageEl = document.createElement('p');
             container.appendChild(messageEl);
         }
+
+        container.style.display = 'none';
+        container.style.position = 'fixed';
+        container.style.inset = '0';
+        container.style.margin = '0';
+        container.style.backgroundColor = '#333';
+        container.style.color = '#fff';
+        container.style.fontFamily = 'Arial, sans-serif';
+        container.style.textAlign = 'center';
+        container.style.padding = '20px';
+        container.style.zIndex = '2147483647';
+        container.style.boxSizing = 'border-box';
+        container.style.display = 'none';
+        container.style.alignItems = 'center';
+        container.style.justifyContent = 'center';
+        container.style.flexDirection = 'column';
+        container.style.gap = '12px';
+
+        titleEl.style.fontSize = '3em';
+        titleEl.style.margin = '0';
+        messageEl.style.fontSize = '1.2em';
+        messageEl.style.margin = '0';
 
         if (!existing) {
             const parent = document.documentElement;
@@ -171,14 +145,17 @@ html.${BLOCK_CLASS} #${OVERLAY_ID} {
             // Stop further loading once we know the page is blocked
             window.stop();
         }
-        html.classList.add(BLOCK_CLASS);
+        overlay.container.style.display = 'flex';
+        html.classList.remove(ALLOWED_CLASS);
         currentlyBlocked = true;
     }
 
     function setAllowedState() {
         const html = document.documentElement;
         if (!html) return;
-        html.classList.remove(BLOCK_CLASS);
+        html.classList.add(ALLOWED_CLASS);
+        const overlay = ensureOverlay();
+        overlay.container.style.display = 'none';
         currentlyBlocked = false;
     }
 
@@ -390,11 +367,6 @@ html.${BLOCK_CLASS} #${OVERLAY_ID} {
         setBlockedState('Time is up');
     } else {
         setAllowedState();
-    }
-
-    if (htmlRoot) {
-        htmlRoot.classList.remove(INIT_CLASS);
-        htmlRoot.style.removeProperty('display');
     }
 
     // Immediate check at document start to update warnings / transitions
