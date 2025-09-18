@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.11
+// @version      1.12
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -50,6 +50,7 @@
     const htmlRoot = document.documentElement;
     if (htmlRoot) {
         htmlRoot.classList.add(INIT_CLASS);
+        htmlRoot.style.setProperty('display', 'none', 'important');
     }
 
     // Function to create and update timer
@@ -141,8 +142,12 @@ html.${BLOCK_CLASS} #${OVERLAY_ID} {
         }
 
         if (!existing) {
-            const parent = document.body || document.documentElement;
-            parent.appendChild(container);
+            const parent = document.documentElement;
+            if (parent.firstChild) {
+                parent.insertBefore(container, parent.firstChild);
+            } else {
+                parent.appendChild(container);
+            }
         }
 
         overlayElements = { container, title: titleEl, message: messageEl };
@@ -163,6 +168,7 @@ html.${BLOCK_CLASS} #${OVERLAY_ID} {
         }
 
         if (!currentlyBlocked) {
+            // Stop further loading once we know the page is blocked
             window.stop();
         }
         html.classList.add(BLOCK_CLASS);
@@ -388,6 +394,7 @@ html.${BLOCK_CLASS} #${OVERLAY_ID} {
 
     if (htmlRoot) {
         htmlRoot.classList.remove(INIT_CLASS);
+        htmlRoot.style.removeProperty('display');
     }
 
     // Immediate check at document start to update warnings / transitions
