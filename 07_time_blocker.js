@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -36,6 +36,28 @@
     // --- END SETTINGS ---
 
     let mainCheckInterval = null; // Variable for main check interval
+    let preBlockMaskApplied = false; // Remember if we hid the document before blocking
+
+    function applyPreBlockMask() {
+        if (preBlockMaskApplied) return;
+        const html = document.documentElement;
+        if (!html) return;
+        html.style.visibility = 'hidden';
+        html.style.opacity = '0';
+        html.style.transition = 'none';
+        preBlockMaskApplied = true;
+    }
+
+    function clearPreBlockMask() {
+        if (!preBlockMaskApplied) return;
+        const html = document.documentElement;
+        if (html) {
+            html.style.removeProperty('visibility');
+            html.style.removeProperty('opacity');
+            html.style.removeProperty('transition');
+        }
+        preBlockMaskApplied = false;
+    }
 
     // Function to create and update timer
     function showWarningTimer(message) {
@@ -73,17 +95,52 @@
     function blockPage(title, message) {
         if (mainCheckInterval) clearInterval(mainCheckInterval);
 
-        // Use requestAnimationFrame to guarantee DOM is ready for changes
-        requestAnimationFrame(() => {
-            document.head.innerHTML = '';
-            document.body.innerHTML = `
-                <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; background-color: #333; color: #fff; font-family: Arial, sans-serif; text-align: center; padding: 20px;">
-                    <h1 style="font-size: 3em;">${title}</h1>
-                    ${message ? `<p style="font-size: 1.2em;">${message}</p>` : ''}
-                </div>
-            `;
-        });
+        applyPreBlockMask();
         window.stop();
+
+        const html = document.documentElement;
+        if (!html) {
+            clearPreBlockMask();
+            return;
+        }
+
+        html.innerHTML = `
+            <head>
+                <meta charset="utf-8" />
+                <title>${title}</title>
+                <style>
+                    html, body {
+                        height: 100%;
+                        margin: 0;
+                    }
+                    body {
+                        background-color: #333;
+                        color: #fff;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        font-family: Arial, sans-serif;
+                        text-align: center;
+                        padding: 20px;
+                    }
+                    h1 {
+                        font-size: 3em;
+                        margin: 0 0 16px 0;
+                    }
+                    p {
+                        font-size: 1.2em;
+                        margin: 0;
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>${title}</h1>
+                ${message ? `<p>${message}</p>` : ''}
+            </body>
+        `;
+
+        clearPreBlockMask();
     }
 
     // Function to convert time to minutes since midnight
@@ -92,8 +149,8 @@
     }
 
     // Function to check if current time is in any blocking interval
-    function isInBlockingInterval(currentHour, currentMinute) {
-        const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    function isInBlockingInterval(currentHour, currentMinute, dayOfWeekOverride) {
+        const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
         // Weekdays Mon-Thu: block everything EXCEPT 16:00-20:00
         if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
@@ -166,8 +223,8 @@
     }
 
     // Function to calculate time until next blocking starts
-    function getTimeUntilBlocking(currentHour, currentMinute) {
-        const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    function getTimeUntilBlocking(currentHour, currentMinute, dayOfWeekOverride) {
+        const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
         // Mon-Thu: Only free window 16:00-20:00, show time left until 20:00 when inside it
         if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
@@ -246,22 +303,26 @@
     }
 
     // Main blocking logic
-    function checkTime() {
-        const now = new Date();
+    function checkTime(precomputed) {
+        const now = precomputed && precomputed.now instanceof Date ? precomputed.now : new Date();
         const currentHour = now.getHours();
         const currentMinute = now.getMinutes();
+        const dayOfWeek = precomputed && typeof precomputed.dayOfWeek === 'number' ? precomputed.dayOfWeek : now.getDay();
+        const shouldBlock = precomputed && typeof precomputed.shouldBlock === 'boolean'
+            ? precomputed.shouldBlock
+            : isInBlockingInterval(currentHour, currentMinute, dayOfWeek);
 
         console.log(`[TimeBlocker] Checking time: ${currentHour}:${currentMinute}`);
 
         // Check if we're in blocking interval
-        if (isInBlockingInterval(currentHour, currentMinute)) {
+        if (shouldBlock) {
             console.log(`[TimeBlocker] BLOCKING PAGE - Time is up`);
             blockPage('Time is up');
             return;
         }
 
         // Check if blocking time is approaching soon
-        const timeUntilBlock = getTimeUntilBlocking(currentHour, currentMinute);
+        const timeUntilBlock = getTimeUntilBlocking(currentHour, currentMinute, dayOfWeek);
         
         if (timeUntilBlock > 0 && timeUntilBlock <= warningMinutes) {
             console.log(`[TimeBlocker] Showing warning timer: ${timeUntilBlock} minutes until blocking`);
@@ -280,8 +341,19 @@
     console.log(`[TimeBlocker] Script started at: ${debugNow.toLocaleString()}`);
     console.log(`[TimeBlocker] Current time: ${debugNow.getHours()}:${debugNow.getMinutes()}`);
 
+    const initialDayOfWeek = debugNow.getDay();
+    const initialShouldBlock = isInBlockingInterval(debugNow.getHours(), debugNow.getMinutes(), initialDayOfWeek);
+
+    if (initialShouldBlock) {
+        applyPreBlockMask();
+    }
+
     // Immediate check at document start
-    checkTime();
+    checkTime({
+        now: debugNow,
+        dayOfWeek: initialDayOfWeek,
+        shouldBlock: initialShouldBlock
+    });
 
     // Start main check every minute
     mainCheckInterval = setInterval(checkTime, 60000);
