@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -37,6 +37,8 @@
 
     let mainCheckInterval = null; // Variable for main check interval
     let preBlockMaskApplied = false; // Remember if we hid the document before blocking
+
+    applyPreBlockMask();
 
     function applyPreBlockMask() {
         if (preBlockMaskApplied) return;
@@ -346,11 +348,13 @@
         if (timeUntilBlock > 0 && timeUntilBlock <= warningMinutes) {
             console.log(`[TimeBlocker] Showing warning timer: ${timeUntilBlock} minutes until blocking`);
             showWarningTimer(`Until blocking: ${timeUntilBlock} min.`);
+            clearPreBlockMask();
             return;
         }
 
         console.log(`[TimeBlocker] No blocking needed, removing timer if exists`);
         removeWarningTimer();
+        clearPreBlockMask();
     }
 
     // --- SCRIPT STARTUP ---
