@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.13
+// @version      1.14
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -170,10 +170,19 @@
         // Weekdays Mon-Thu: block everything EXCEPT 16:00-20:00
         if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
+            if (dayOfWeek === 1) { // Monday: 11:00-14:00 and 16:00-20:00 free
+                const mondayWindows = [
+                    { start: timeToMinutes(11, 0), end: timeToMinutes(14, 0) },
+                    { start: timeToMinutes(16, 0), end: timeToMinutes(20, 0) }
+                ];
+                const inAnyWindow = mondayWindows.some(({ start, end }) => currentTimeInMinutes >= start && currentTimeInMinutes < end);
+                console.log(`[TimeBlocker] Monday policy. Free windows 11:00-14:00, 16:00-20:00. In free window: ${inAnyWindow}`);
+                return !inAnyWindow;
+            }
             const freeStart = timeToMinutes(16, 0);
             const freeEnd = timeToMinutes(20, 0);
             const inFreeWindow = currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd;
-            console.log(`[TimeBlocker] Mon-Thu policy. Free window 16:00-20:00. In free window: ${inFreeWindow}`);
+            console.log(`[TimeBlocker] Tue-Thu policy. Free window 16:00-20:00. In free window: ${inFreeWindow}`);
             return !inFreeWindow; // block outside free window
         }
         // Friday: block from 21:00
@@ -244,11 +253,24 @@
         // Mon-Thu: Only free window 16:00-20:00, show time left until 20:00 when inside it
         if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
+            if (dayOfWeek === 1) { // Monday windows
+                const mondayWindows = [
+                    { start: timeToMinutes(11, 0), end: timeToMinutes(14, 0), label: '11:00-14:00' },
+                    { start: timeToMinutes(16, 0), end: timeToMinutes(20, 0), label: '16:00-20:00' }
+                ];
+                const activeWindow = mondayWindows.find(({ start, end }) => currentTimeInMinutes >= start && currentTimeInMinutes < end);
+                if (activeWindow) {
+                    const remaining = activeWindow.end - currentTimeInMinutes;
+                    console.log(`[TimeBlocker] Monday free window (${activeWindow.label}) active. Blocking resumes in ${remaining} minutes`);
+                    return remaining;
+                }
+                return 0;
+            }
             const freeStart = timeToMinutes(16, 0);
             const freeEnd = timeToMinutes(20, 0);
             if (currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd) {
                 const remaining = freeEnd - currentTimeInMinutes;
-                console.log(`[TimeBlocker] Mon-Thu free window active. Blocking resumes in ${remaining} minutes`);
+                console.log(`[TimeBlocker] Tue-Thu free window active. Blocking resumes in ${remaining} minutes`);
                 return remaining;
             }
             // Already blocked outside free window
