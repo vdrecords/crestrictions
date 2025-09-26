@@ -18,7 +18,13 @@
     // === Core Settings ===
     // ==============================
     const lichessUsername    = 'kazamba';  // Lichess username
-    let   minTasksPerDay     = 500;        // Minimum puzzles per day
+
+    function getMinTasksPerDay(date = new Date()) {
+        const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        if (day === 5) return 200;          // Friday
+        if (day === 6 || day === 0) return 1000; // Saturday & Sunday
+        return 500;                         // Monday-Thursday
+    }
     
     // For compatibility with message control script (uses same GM key format)
     const COMPATIBILITY_ID   = 72;         // Fixed ID for GM key compatibility
@@ -568,6 +574,7 @@
             // Always fetch fresh data for non-training pages to make redirect decisions
             console.log("[LichessTracker] Fetching fresh data for redirect decision");
             fetchTodaysPuzzles().then(solvedToday => {
+                const minTasksPerDay = getMinTasksPerDay();
                 const unlockRemaining = Math.max(minTasksPerDay - solvedToday, 0);
                 
                 // Update GM storage for message control compatibility
@@ -793,6 +800,7 @@
             function updateProgress() {
                 console.log("[LichessTracker] Updating progress data");
                 fetchTodaysPuzzles().then(solvedToday => {
+                    const minTasksPerDay = getMinTasksPerDay();
                     const unlockRemaining = Math.max(minTasksPerDay - solvedToday, 0);
                     
                     // Update GM storage
@@ -1331,6 +1339,7 @@
             writeGMNumber(keyDailyCount, newDaily);
             
             // Update cache
+            const minTasksPerDay = getMinTasksPerDay();
             const newUnlockRemaining = Math.max(minTasksPerDay - newDaily, 0);
             writeGMNumber(keyCachedSolved, newDaily);
             writeGMNumber(keyCachedUnlock, newUnlockRemaining);
