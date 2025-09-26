@@ -16,19 +16,16 @@
     // ==============================
     // === Core Settings ===
     // ==============================
-    let   minTasksPerDay     = 800;        // Minimum puzzles per day (default)
-    // Dynamic target by day: Mon-Thu -> 400, Fri -> 200, Sat/Sun -> 800
-    (function updateDailyTargetByDay() {
-        const day = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        if (day >= 1 && day <= 4) { // Mon-Thu
-            minTasksPerDay = 400;
-        } else if (day === 5) { // Fri
-            minTasksPerDay = 200;
-        } else { // Sat/Sun
-            minTasksPerDay = 800;
-        }
-        console.log(`[RacerTracker] Daily target set: ${minTasksPerDay}`);
-    })();
+    // Dynamic target: Mon-Thu 500, Fri 200, Weekend 1000
+    function getMinTasksPerDay(date = new Date()) {
+        const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        if (day === 5) return 200;            // Friday
+        if (day === 6 || day === 0) return 1000; // Weekend
+        return 500;                           // Monday-Thursday
+    }
+
+    let minTasksPerDay = getMinTasksPerDay();
+    console.log(`[RacerTracker] Daily target set: ${minTasksPerDay}`);
     
     // For compatibility with message control script (uses same GM key format)
     const COMPATIBILITY_ID   = 72;         // Fixed ID for GM key compatibility
@@ -118,18 +115,8 @@
         console.log(`[RacerTracker] Date check - Saved: '${savedDate}', Current: '${dateKey}'`);
         
         if (savedDate !== dateKey) {
-            // Re-evaluate target at day change
-            (function updateDailyTargetByDay() {
-                const day = new Date().getDay();
-                if (day >= 1 && day <= 4) { // Mon-Thu
-                    minTasksPerDay = 400;
-                } else if (day === 5) { // Fri
-                    minTasksPerDay = 200;
-                } else { // Sat/Sun
-                    minTasksPerDay = 800;
-                }
-                console.log(`[RacerTracker] (Midnight reset) Daily target set: ${minTasksPerDay}`);
-            })();
+            minTasksPerDay = getMinTasksPerDay();
+            console.log(`[RacerTracker] (Midnight reset) Daily target set: ${minTasksPerDay}`);
             if (savedDate === null) {
                 console.log(`[RacerTracker] First run - initializing date tracking for ${dateKey}`);
                 GM_setValue('racer_tracker_date', dateKey);
@@ -279,6 +266,11 @@
             }
             
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
+            const currentTarget = getMinTasksPerDay();
+            if (currentTarget !== minTasksPerDay) {
+                minTasksPerDay = currentTarget;
+                console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
+            }
             const remaining = Math.max(minTasksPerDay - racerPuzzles, 0);
             
             const solvedEl = progressWindow.querySelector('#solved-count');
@@ -389,6 +381,11 @@
             writeGMNumber(keyDailyCount, newRacerPuzzles);
             
             // Update cache
+            const currentTarget = getMinTasksPerDay();
+            if (currentTarget !== minTasksPerDay) {
+                minTasksPerDay = currentTarget;
+                console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
+            }
             const newUnlockRemaining = Math.max(minTasksPerDay - newRacerPuzzles, 0);
             writeGMNumber(keyCachedSolved, newRacerPuzzles);
             writeGMNumber(keyCachedUnlock, newUnlockRemaining);
@@ -567,6 +564,11 @@
             // Proceed with racer progress check without training mode considerations
             
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
+            const currentTarget = getMinTasksPerDay();
+            if (currentTarget !== minTasksPerDay) {
+                minTasksPerDay = currentTarget;
+                console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
+            }
             const unlockRemaining = Math.max(minTasksPerDay - racerPuzzles, 0);
             
             // Update GM storage
@@ -640,6 +642,11 @@
             getRacerData: () => {
                 const racer = readGMNumber(keyRacerPuzzles) || 0;
                 const daily = readGMNumber(keyDailyCount) || 0;
+                const currentTarget = getMinTasksPerDay();
+                if (currentTarget !== minTasksPerDay) {
+                    minTasksPerDay = currentTarget;
+                    console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
+                }
                 const remaining = readGMNumber(keyCachedUnlock) || minTasksPerDay;
                 console.log(`Racer Data - Racer: ${racer}, Daily: ${daily}, Remaining: ${remaining}`);
                 return { racer, daily, remaining };
@@ -653,6 +660,11 @@
                 writeGMNumber(keyRacerPuzzles, 0);
                 writeGMNumber(keyDailyCount, 0);
                 writeGMNumber(keyCachedSolved, 0);
+                const currentTarget = getMinTasksPerDay();
+                if (currentTarget !== minTasksPerDay) {
+                    minTasksPerDay = currentTarget;
+                    console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
+                }
                 writeGMNumber(keyCachedUnlock, minTasksPerDay);
                 updateProgressWindow();
             },
