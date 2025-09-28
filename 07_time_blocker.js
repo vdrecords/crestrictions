@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.14
+// @version      1.15
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -37,6 +37,8 @@
 
     const OVERLAY_ID = 'time-blocker-overlay';
     const ALLOWED_CLASS = 'time-blocker-allowed';
+    const SPECIAL_UNLOCK_DATE = '2025-09-28'; // YYYY-MM-DD
+    const SPECIAL_UNLOCK_END_MINUTES = 21 * 60; // 21:00 local time
 
     let mainCheckInterval = null; // Variable for main check interval
     let currentlyBlocked = false;
@@ -162,6 +164,20 @@
     // Function to convert time to minutes since midnight
     function timeToMinutes(hours, minutes) {
         return hours * 60 + minutes;
+    }
+
+    function getDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function isSpecialUnlockActive(date, hour, minute) {
+        if (!(date instanceof Date)) return false;
+        const dateKey = getDateKey(date);
+        if (dateKey !== SPECIAL_UNLOCK_DATE) return false;
+        return timeToMinutes(hour, minute) < SPECIAL_UNLOCK_END_MINUTES;
     }
 
     // Function to check if current time is in any blocking interval
@@ -346,9 +362,12 @@
         const currentHour = now.getHours();
         const currentMinute = now.getMinutes();
         const dayOfWeek = precomputed && typeof precomputed.dayOfWeek === 'number' ? precomputed.dayOfWeek : now.getDay();
-        const shouldBlock = precomputed && typeof precomputed.shouldBlock === 'boolean'
-            ? precomputed.shouldBlock
+        const baseShouldBlock = precomputed && typeof precomputed.baseShouldBlock === 'boolean'
+            ? precomputed.baseShouldBlock
             : isInBlockingInterval(currentHour, currentMinute, dayOfWeek);
+        const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
+        const specialUnlockActive = isSpecialUnlockActive(now, currentHour, currentMinute);
+        const shouldBlock = specialUnlockActive ? false : baseShouldBlock;
 
         console.log(`[TimeBlocker] Checking time: ${currentHour}:${currentMinute}`);
 
@@ -363,8 +382,10 @@
         setAllowedState();
 
         // Check if blocking time is approaching soon
-        const timeUntilBlock = getTimeUntilBlocking(currentHour, currentMinute, dayOfWeek);
-        
+        const timeUntilBlock = specialUnlockActive
+            ? SPECIAL_UNLOCK_END_MINUTES - currentTimeInMinutes
+            : getTimeUntilBlocking(currentHour, currentMinute, dayOfWeek);
+
         if (timeUntilBlock > 0 && timeUntilBlock <= warningMinutes) {
             console.log(`[TimeBlocker] Showing warning timer: ${timeUntilBlock} minutes until blocking`);
             showWarningTimer(`Until blocking: ${timeUntilBlock} min.`);
@@ -383,9 +404,11 @@
     console.log(`[TimeBlocker] Current time: ${debugNow.getHours()}:${debugNow.getMinutes()}`);
 
     const initialDayOfWeek = debugNow.getDay();
-    const initialShouldBlock = isInBlockingInterval(debugNow.getHours(), debugNow.getMinutes(), initialDayOfWeek);
+    const initialBaseShouldBlock = isInBlockingInterval(debugNow.getHours(), debugNow.getMinutes(), initialDayOfWeek);
+    const initialSpecialUnlockActive = isSpecialUnlockActive(debugNow, debugNow.getHours(), debugNow.getMinutes());
+    const initialEffectiveShouldBlock = initialSpecialUnlockActive ? false : initialBaseShouldBlock;
 
-    if (initialShouldBlock) {
+    if (initialEffectiveShouldBlock) {
         setBlockedState('Time is up');
     } else {
         setAllowedState();
@@ -395,7 +418,7 @@
     checkTime({
         now: debugNow,
         dayOfWeek: initialDayOfWeek,
-        shouldBlock: initialShouldBlock
+        baseShouldBlock: initialBaseShouldBlock
     });
 
     // Start main check every minute

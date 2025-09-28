@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -266,11 +266,6 @@
             }
             
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
-            const currentTarget = getMinTasksPerDay();
-            if (currentTarget !== minTasksPerDay) {
-                minTasksPerDay = currentTarget;
-                console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
-            }
             const remaining = Math.max(minTasksPerDay - racerPuzzles, 0);
             
             const solvedEl = progressWindow.querySelector('#solved-count');
@@ -381,11 +376,6 @@
             writeGMNumber(keyDailyCount, newRacerPuzzles);
             
             // Update cache
-            const currentTarget = getMinTasksPerDay();
-            if (currentTarget !== minTasksPerDay) {
-                minTasksPerDay = currentTarget;
-                console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
-            }
             const newUnlockRemaining = Math.max(minTasksPerDay - newRacerPuzzles, 0);
             writeGMNumber(keyCachedSolved, newRacerPuzzles);
             writeGMNumber(keyCachedUnlock, newUnlockRemaining);
@@ -564,11 +554,6 @@
             // Proceed with racer progress check without training mode considerations
             
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
-            const currentTarget = getMinTasksPerDay();
-            if (currentTarget !== minTasksPerDay) {
-                minTasksPerDay = currentTarget;
-                console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
-            }
             const unlockRemaining = Math.max(minTasksPerDay - racerPuzzles, 0);
             
             // Update GM storage
@@ -642,11 +627,6 @@
             getRacerData: () => {
                 const racer = readGMNumber(keyRacerPuzzles) || 0;
                 const daily = readGMNumber(keyDailyCount) || 0;
-                const currentTarget = getMinTasksPerDay();
-                if (currentTarget !== minTasksPerDay) {
-                    minTasksPerDay = currentTarget;
-                    console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
-                }
                 const remaining = readGMNumber(keyCachedUnlock) || minTasksPerDay;
                 console.log(`Racer Data - Racer: ${racer}, Daily: ${daily}, Remaining: ${remaining}`);
                 return { racer, daily, remaining };
@@ -660,11 +640,6 @@
                 writeGMNumber(keyRacerPuzzles, 0);
                 writeGMNumber(keyDailyCount, 0);
                 writeGMNumber(keyCachedSolved, 0);
-                const currentTarget = getMinTasksPerDay();
-                if (currentTarget !== minTasksPerDay) {
-                    minTasksPerDay = currentTarget;
-                    console.log(`[RacerTracker] Target adjusted during session: ${minTasksPerDay}`);
-                }
                 writeGMNumber(keyCachedUnlock, minTasksPerDay);
                 updateProgressWindow();
             },
