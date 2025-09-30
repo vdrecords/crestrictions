@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.10
+// @version      1.11
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -15,13 +15,18 @@
 
     // ==============================
     // === Core Settings ===
+    const SPECIAL_TARGET_DATE = '2025-09-30';
+    const SPECIAL_TARGET_VALUE = 300;
+
     // ==============================
-    // Dynamic target: Mon-Thu 500, Fri 200, Weekend 1000
+    // Dynamic target: Mon-Thu 500, Fri 200, Weekend 1000 (override on SPECIAL_TARGET_DATE)
     function getMinTasksPerDay(date = new Date()) {
+        const dateKey = formatDateKey(date);
+        if (dateKey === SPECIAL_TARGET_DATE) return SPECIAL_TARGET_VALUE;
         const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
         if (day === 5) return 200;            // Friday
         if (day === 6 || day === 0) return 1000; // Weekend
-        return 400;                           // Monday-Thursday
+        return 500;                           // Monday-Thursday
     }
 
     let minTasksPerDay = getMinTasksPerDay();
@@ -33,14 +38,17 @@
     // =================================
     // === Helper Functions ===
     // =================================
-    function getTodayDateString() {
-        const now = new Date();
-        const y   = now.getFullYear();
-        const m   = String(now.getMonth() + 1).padStart(2, '0');
-        const d   = String(now.getDate()).padStart(2, '0');
-        const result = `${y}-${m}-${d}`;
-        console.log(`[RacerTracker] getTodayDateString() calculated: ${result} (raw Date: ${now})`);
+    function getTodayDateString(date = new Date()) {
+        const result = formatDateKey(date);
+        console.log(`[RacerTracker] getTodayDateString() calculated: ${result} (raw Date: ${date})`);
         return result;
+    }
+
+    function formatDateKey(date) {
+        const y   = date.getFullYear();
+        const m   = String(date.getMonth() + 1).padStart(2, '0');
+        const d   = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
 
     function readGMNumber(key) {
