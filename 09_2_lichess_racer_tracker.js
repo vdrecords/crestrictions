@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.11
+// @version      1.12
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -26,7 +26,7 @@
         const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
         if (day === 5) return 200;            // Friday
         if (day === 6 || day === 0) return 1000; // Weekend
-        return 500;                           // Monday-Thursday
+        return 400;                           // Monday-Thursday
     }
 
     let minTasksPerDay = getMinTasksPerDay();
