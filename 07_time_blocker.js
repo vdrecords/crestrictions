@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.15
+// @version      1.16
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -183,22 +183,22 @@
     // Function to check if current time is in any blocking interval
     function isInBlockingInterval(currentHour, currentMinute, dayOfWeekOverride) {
         const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        // Weekdays Mon-Thu: block everything EXCEPT 16:00-20:00
+        // Weekdays Mon-Thu: block everything EXCEPT 16:00-21:00 (Monday adds 11:00-14:00)
         if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
-            if (dayOfWeek === 1) { // Monday: 11:00-14:00 and 16:00-20:00 free
+            if (dayOfWeek === 1) { // Monday: 11:00-14:00 and 16:00-21:00 free
                 const mondayWindows = [
                     { start: timeToMinutes(11, 0), end: timeToMinutes(14, 0) },
-                    { start: timeToMinutes(16, 0), end: timeToMinutes(20, 0) }
+                    { start: timeToMinutes(16, 0), end: timeToMinutes(21, 0) }
                 ];
                 const inAnyWindow = mondayWindows.some(({ start, end }) => currentTimeInMinutes >= start && currentTimeInMinutes < end);
-                console.log(`[TimeBlocker] Monday policy. Free windows 11:00-14:00, 16:00-20:00. In free window: ${inAnyWindow}`);
+                console.log(`[TimeBlocker] Monday policy. Free windows 11:00-14:00, 16:00-21:00. In free window: ${inAnyWindow}`);
                 return !inAnyWindow;
             }
             const freeStart = timeToMinutes(16, 0);
-            const freeEnd = timeToMinutes(20, 0);
+            const freeEnd = timeToMinutes(21, 0);
             const inFreeWindow = currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd;
-            console.log(`[TimeBlocker] Tue-Thu policy. Free window 16:00-20:00. In free window: ${inFreeWindow}`);
+            console.log(`[TimeBlocker] Tue-Thu policy. Free window 16:00-21:00. In free window: ${inFreeWindow}`);
             return !inFreeWindow; // block outside free window
         }
         // Friday: block from 21:00
@@ -266,13 +266,13 @@
     // Function to calculate time until next blocking starts
     function getTimeUntilBlocking(currentHour, currentMinute, dayOfWeekOverride) {
         const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        // Mon-Thu: Only free window 16:00-20:00, show time left until 20:00 when inside it
+        // Mon-Thu: Only free window 16:00-21:00 (11:00-14:00 extra on Monday)
         if (dayOfWeek >= 1 && dayOfWeek <= 4) {
             const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
             if (dayOfWeek === 1) { // Monday windows
                 const mondayWindows = [
                     { start: timeToMinutes(11, 0), end: timeToMinutes(14, 0), label: '11:00-14:00' },
-                    { start: timeToMinutes(16, 0), end: timeToMinutes(20, 0), label: '16:00-20:00' }
+                    { start: timeToMinutes(16, 0), end: timeToMinutes(21, 0), label: '16:00-21:00' }
                 ];
                 const activeWindow = mondayWindows.find(({ start, end }) => currentTimeInMinutes >= start && currentTimeInMinutes < end);
                 if (activeWindow) {
@@ -283,7 +283,7 @@
                 return 0;
             }
             const freeStart = timeToMinutes(16, 0);
-            const freeEnd = timeToMinutes(20, 0);
+            const freeEnd = timeToMinutes(21, 0);
             if (currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd) {
                 const remaining = freeEnd - currentTimeInMinutes;
                 console.log(`[TimeBlocker] Tue-Thu free window active. Blocking resumes in ${remaining} minutes`);
