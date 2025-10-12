@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.12
+// @version      1.13
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -15,8 +15,8 @@
 
     // ==============================
     // === Core Settings ===
-    const SPECIAL_TARGET_DATE = '2025-09-30';
-    const SPECIAL_TARGET_VALUE = 300;
+    const SPECIAL_TARGET_DATE = '2025-10-12';
+    const SPECIAL_TARGET_VALUE = 3;
 
     // ==============================
     // Dynamic target: Mon-Thu 500, Fri 200, Weekend 1000 (override on SPECIAL_TARGET_DATE)
@@ -89,6 +89,27 @@
         const keyCachedUnlock = `cached_unlock_${COMPATIBILITY_ID}_${dateKey}`;
         const keyRacerPuzzles = `racer_puzzles_${COMPATIBILITY_ID}_${dateKey}`;
 
+        function publishSharedProgress(solvedValue) {
+            const payload = {
+                solved: solvedValue,
+                courseId: COMPATIBILITY_ID,
+                date: dateKey,
+                key: keyDailyCount,
+                source: 'racer',
+                timestamp: Date.now()
+            };
+            try {
+                window.lichessTrackerData = payload;
+            } catch (e) {
+                console.log('[RacerTracker] Failed to expose payload on window', e);
+            }
+            try {
+                localStorage.setItem('lichess_tracker_data', JSON.stringify(payload));
+            } catch (e) {
+                console.log('[RacerTracker] Failed to write payload to localStorage', e);
+            }
+        }
+
         const hostname = window.location.hostname;
         const pathname = window.location.pathname;
         
@@ -141,6 +162,7 @@
                     writeGMNumber(keyCachedSolved, 0);
                     writeGMNumber(keyCachedUnlock, minTasksPerDay);
                     writeGMNumber(keyRacerPuzzles, 0);
+                    publishSharedProgress(0);
                     
                     // Clean up old processed race data (keep only last 7 days)
                     const allKeys = [];
@@ -390,6 +412,8 @@
             
             console.log(`[RacerTracker] Updated counts - Daily: ${newRacerPuzzles}, Racer: ${newRacerPuzzles}, Remaining: ${newUnlockRemaining}`);
             
+            publishSharedProgress(newRacerPuzzles);
+            
             // Race is already marked as processed by extractRacePuzzleResults
             if (raceId) {
                 console.log(`[RacerTracker] Race ${raceId} processing confirmed`);
@@ -568,6 +592,7 @@
             writeGMNumber(keyDailyCount, racerPuzzles);
             writeGMNumber(keyCachedSolved, racerPuzzles);
             writeGMNumber(keyCachedUnlock, unlockRemaining);
+            publishSharedProgress(racerPuzzles);
             
             console.log(`[RacerTracker] Current progress - Puzzles solved: ${racerPuzzles}, Remaining: ${unlockRemaining}`);
             
@@ -587,6 +612,8 @@
             
             // Always show racer-related pages
             if (document.body) document.body.style.visibility = '';
+
+            publishSharedProgress(readGMNumber(keyRacerPuzzles) || 0);
             
             // Create persistent progress window
             if (document.readyState === 'loading') {
@@ -622,6 +649,7 @@
             // Update GM storage for message control compatibility
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
             writeGMNumber(keyDailyCount, racerPuzzles);
+            publishSharedProgress(racerPuzzles);
             
             console.log(`[RacerTracker] Updated GM storage for utility page: ${racerPuzzles} puzzles`);
         }
@@ -649,6 +677,7 @@
                 writeGMNumber(keyDailyCount, 0);
                 writeGMNumber(keyCachedSolved, 0);
                 writeGMNumber(keyCachedUnlock, minTasksPerDay);
+                publishSharedProgress(0);
                 updateProgressWindow();
             },
             clearProcessedRaces: () => {

@@ -1,10 +1,14 @@
 // ==UserScript==
 // @name         05_message_control - Контроль сообщений по задачам
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.2
 // @description  Универсальный контроль отправки сообщений на основе количества решённых задач. Автоматически определяет активный трекер (ChessKing или Lichess)
 // @match        https://lichess.org/inbox/*
-// @match        https://lichess.org/forum/team-*
+// @match        https://lichess.org/forum/*
+// @match        https://lichess.org/team/*/pm
+// @match        https://lichess.org/team/*/pm-all
+// @match        https://lichess.org/team/*/messages
+// @match        https://lichess.org/team/*/forum/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
@@ -80,10 +84,13 @@
     // === Message control logic ===
     (function() {
         // 0) URL guard: only work on needed pages
-        const path   = location.pathname;
-        const isInbox = path.startsWith('/inbox/');
-        const isForum = /^\/forum\/team-[^\/]+\/[^\/]+/.test(path);
-        if (!isInbox && !isForum) return;
+        const path        = location.pathname;
+        const isInbox     = path.startsWith('/inbox/');
+        const isForum     = path.startsWith('/forum/');
+        const isForumNew  = /^\/forum\/[^\/]+\/new/.test(path);
+        const isTeamForum = /^\/team\/[^\/]+\/forum\//.test(path);
+        const isTeamPM    = /^\/team\/[^\/]+\/(pm|messages)/.test(path);
+        if (!(isInbox || isForum || isForumNew || isTeamForum || isTeamPM)) return;
 
         // 1) Auto-detect which tracker is active by checking GM keys
         const dateKey = getTodayDateString();
@@ -131,15 +138,73 @@
         let activeSolved = 0;
         let dataReceivedFromEvent = false; // Track if we got data from custom event
         
-        // Find the key with the highest solved count (indicates active tracker)
+        const messageFormSelectors = [
+            '.msg-app__convo__post',                  // личные сообщения
+            'form.form3.reply',                       // ответы в форуме
+            'form.form3:not(.reply)',                 // создание тем
+            'form#team-message-form',                 // командные рассылки (старый вариант)
+            'form.team-message',                      // командные рассылки (новый вариант)
+            'form[action*="/team/"][action*="/pm"]',  // дополнительные формы команды
+            'form[action*="/team/"][action*="/messages"]'
+        ];
+
+        function extractDateFromKey(key) {
+            if (!key) return null;
+            const match = key.match(/daily_solved_\d+_(\d{4}-\d{2}-\d{2})/);
+            return match ? match[1] : null;
+        }
+
+        function isKeyForDate(key, targetDate) {
+            const keyDate = extractDateFromKey(key);
+            return keyDate === targetDate;
+        }
+
+        function forEachMessageForm(callback) {
+            messageFormSelectors.forEach(selector => {
+                const forms = document.querySelectorAll(selector);
+                forms.forEach(form => callback(form));
+            });
+        }
+
+        function refreshAllInitializedForms() {
+            forEachMessageForm(form => {
+                if (form.dataset.msgCtrlInit) {
+                    const refreshEvent = new CustomEvent('refreshMessageControl');
+                    form.dispatchEvent(refreshEvent);
+                }
+            });
+        }
+
+        const todayKey = possibleKeys[0];
+        const todaySolvedRaw = readGMNumber(todayKey);
+        let fallbackKey = null;
+        let fallbackSolved = 0;
+
         console.log(`[MessageControl] Checking possible keys for date: ${dateKey}`);
-        for (const key of possibleKeys) {
+        possibleKeys.forEach((key, index) => {
             const solved = readGMNumber(key) || 0;
             console.log(`[MessageControl] Key '${key}' has value: ${solved}`);
-            if (solved > activeSolved) {
-                activeSolved = solved;
-                activeKey = key;
+            if (index > 0 && solved > fallbackSolved) {
+                fallbackSolved = solved;
+                fallbackKey = key;
             }
+        });
+
+        if (todaySolvedRaw !== null && !Number.isNaN(todaySolvedRaw)) {
+            activeKey = todayKey;
+            activeSolved = todaySolvedRaw;
+            console.log(`[MessageControl] Using today's key ${todayKey} with value ${activeSolved}`);
+        } else if (fallbackKey && fallbackSolved > 0) {
+            activeKey = fallbackKey;
+            activeSolved = fallbackSolved;
+            console.log(`[MessageControl] Today's key missing, using fallback ${fallbackKey} with value ${activeSolved}`);
+        } else {
+            activeKey = todayKey;
+            activeSolved = 0;
+            console.log(`[MessageControl] No valid data found, defaulting to today's key ${todayKey}`);
+        }
+        if (typeof activeSolved !== 'number' || Number.isNaN(activeSolved)) {
+            activeSolved = 0;
         }
         
         // If no data found, wait a bit and retry (in case tracker script is still loading)
@@ -281,7 +346,7 @@
             function initFormControl(form) {
                 if (!form || form.dataset.msgCtrlInit) return;
                 const ta  = form.querySelector('textarea');
-                const btn = form.querySelector('button[type="submit"]');
+                const btn = form.querySelector('button[type="submit"], button:not([type]), input[type="submit"]');
                 if (!ta || !btn) return;
 
                 // Create indicator next to textarea
@@ -296,8 +361,8 @@
                     ta.disabled  = remaining <= 0;
                     btn.disabled = remaining <= 0;
                     info.textContent = remaining > 0
-                        ? `Available ${remaining}/${allowed} messages (${solved} tasks solved)`
-                        : `Available 0. Solve ${tasksToNext} more tasks (${solved} tasks solved)`;
+                        ? `Доступно сообщений: ${remaining} из ${allowed} (решено ${solved} задач)`
+                        : `Нет доступных сообщений. Решите ещё ${tasksToNext} задач (решено ${solved} задач)`;
                 }
                 refresh();
 
@@ -408,12 +473,9 @@
                 form.dataset.msgCtrlInit = '1';
             }
 
-            // 4) Continuous polling (more frequent), looking for both forms
+            // 4) Continuous polling (more frequent), looking for all supported forms
             setInterval(() => {
-                // Lichess — dialogs in messenger
-                initFormControl(document.querySelector('.msg-app__convo__post'));
-                // Forum — reply form
-                initFormControl(document.querySelector('form.form3.reply'));
+                forEachMessageForm(form => initFormControl(form));
             }, 100); // Check every 100ms for faster response
         }
         
@@ -427,25 +489,26 @@
             // ADD: Listen for custom events from tracker script
             window.addEventListener('lichessTrackerUpdate', (event) => {
                 console.log(`[MessageControl] Received custom event with data:`, event.detail);
-                if (event.detail && event.detail.solved > 0) {
-                    activeSolved = event.detail.solved;
-                    activeKey = event.detail.key || `daily_solved_${event.detail.courseId}_${event.detail.date}`;
-                    dataReceivedFromEvent = true; // Mark that we got data from event
-                    console.log(`[MessageControl] Event provided: solved=${activeSolved}, key=${activeKey}`);
-                    clearInterval(dataCheckInterval);
-                    initializeMessageControl();
-                    // Immediately refresh any existing forms
-                    setTimeout(() => {
-                        const forms = document.querySelectorAll('.msg-app__convo__post, form.form3.reply');
-                        forms.forEach(form => {
-                            if (form.dataset.msgCtrlInit) {
-                                // Trigger refresh by simulating the refresh function
-                                const refreshEvent = new CustomEvent('refreshMessageControl');
-                                form.dispatchEvent(refreshEvent);
-                            }
-                        });
-                    }, 100);
+                if (!event.detail || event.detail.solved <= 0) return;
+
+                const incomingKey = event.detail.key || `daily_solved_${event.detail.courseId}_${event.detail.date}`;
+                const incomingDate = event.detail.date || extractDateFromKey(incomingKey);
+
+                if (incomingDate !== dateKey) {
+                    console.log(`[MessageControl] Ignoring event data for ${incomingDate}, waiting for ${dateKey}`);
+                    return;
                 }
+
+                activeSolved = event.detail.solved;
+                activeKey = incomingKey;
+                dataReceivedFromEvent = true; // Mark that we got data from event
+                console.log(`[MessageControl] Event provided: solved=${activeSolved}, key=${activeKey}`);
+                clearInterval(dataCheckInterval);
+                initializeMessageControl();
+                // Immediately refresh any existing forms
+                setTimeout(() => {
+                    refreshAllInitializedForms();
+                }, 100);
             });
             
             // ADD: Function to check DOM elements for data
@@ -457,36 +520,48 @@
                     const courseId = dataElement.getAttribute('data-course-id');
                     const date = dataElement.getAttribute('data-date');
                     const key = dataElement.getAttribute('data-key');
-                    
-                    if (solved > 0) {
+
+                    const keyDate = date || extractDateFromKey(key);
+                    if (solved > 0 && keyDate === dateKey) {
                         console.log(`[MessageControl] Found DOM element with data: solved=${solved}, key=${key}`);
                         activeSolved = solved;
                         activeKey = key;
                         dataReceivedFromEvent = true; // Mark that we got data from alternative source
                         return true;
                     }
+                    if (solved > 0) {
+                        console.log(`[MessageControl] Ignoring DOM data for different date (${keyDate})`);
+                    }
                 }
-                
+
                 // Check window global
                 if (window.lichessTrackerData && window.lichessTrackerData.solved > 0) {
-                    console.log(`[MessageControl] Found window global data:`, window.lichessTrackerData);
-                    activeSolved = window.lichessTrackerData.solved;
-                    activeKey = window.lichessTrackerData.key;
-                    dataReceivedFromEvent = true; // Mark that we got data from alternative source
-                    return true;
+                    const globalDate = window.lichessTrackerData.date || extractDateFromKey(window.lichessTrackerData.key);
+                    if (globalDate === dateKey) {
+                        console.log(`[MessageControl] Found window global data:`, window.lichessTrackerData);
+                        activeSolved = window.lichessTrackerData.solved;
+                        activeKey = window.lichessTrackerData.key;
+                        dataReceivedFromEvent = true; // Mark that we got data from alternative source
+                        return true;
+                    }
+                    console.log(`[MessageControl] Ignoring window global data for ${globalDate}`);
                 }
-                
+
                 // Check localStorage
                 try {
                     const localData = localStorage.getItem('lichess_tracker_data');
                     if (localData) {
                         const data = JSON.parse(localData);
-                        if (data.solved > 0) {
+                        const localDate = data.date || extractDateFromKey(data.key);
+                        if (data.solved > 0 && localDate === dateKey) {
                             console.log(`[MessageControl] Found localStorage data:`, data);
                             activeSolved = data.solved;
                             activeKey = data.key;
                             dataReceivedFromEvent = true; // Mark that we got data from alternative source
                             return true;
+                        }
+                        if (data.solved > 0) {
+                            console.log(`[MessageControl] Ignoring localStorage data for ${localDate}`);
                         }
                     }
                 } catch (e) {
@@ -513,15 +588,22 @@
                     console.log(`[MessageControl] Found tracker data ready signal: ${dataReadySignal}`);
                     GM_setValue('tracker_data_ready', null); // Clear the signal
                     clearInterval(dataCheckInterval);
-                    
+
                     // Parse the signal to get the latest data
                     const parts = dataReadySignal.split(':'); // format: key:value:timestamp
                     if (parts.length >= 2) {
                         activeKey = parts[0];
                         activeSolved = parseInt(parts[1], 10) || 0;
-                        console.log(`[MessageControl] Signal provided: key=${activeKey}, solved=${activeSolved}`);
+                        const signalDate = extractDateFromKey(activeKey);
+                        if (signalDate !== dateKey) {
+                            console.log(`[MessageControl] Ignoring signal for ${signalDate}`);
+                            activeKey = todayKey;
+                            activeSolved = todaySolvedRaw || 0;
+                        } else {
+                            console.log(`[MessageControl] Signal provided: key=${activeKey}, solved=${activeSolved}`);
+                        }
                     }
-                    
+
                     initializeMessageControl();
                     return;
                 }
@@ -564,20 +646,28 @@
                 if (dataElement) {
                     const solved = parseInt(dataElement.getAttribute('data-solved'), 10);
                     const key = dataElement.getAttribute('data-key');
-                    if (solved > 0) {
+                    const keyDate = extractDateFromKey(key);
+                    if (solved > 0 && keyDate === dateKey) {
                         console.log(`[MessageControl] Found immediate DOM data: solved=${solved}, key=${key}`);
                         activeSolved = solved;
                         activeKey = key;
                         dataReceivedFromEvent = true; // Mark that we got data from alternative source
                         return true;
                     }
+                    if (solved > 0) {
+                        console.log(`[MessageControl] Immediate DOM data ignored for ${keyDate}`);
+                    }
                 }
                 if (window.lichessTrackerData && window.lichessTrackerData.solved > 0) {
-                    console.log(`[MessageControl] Found immediate window data:`, window.lichessTrackerData);
-                    activeSolved = window.lichessTrackerData.solved;
-                    activeKey = window.lichessTrackerData.key;
-                    dataReceivedFromEvent = true; // Mark that we got data from alternative source
-                    return true;
+                    const globalDate = window.lichessTrackerData.date || extractDateFromKey(window.lichessTrackerData.key);
+                    if (globalDate === dateKey) {
+                        console.log(`[MessageControl] Found immediate window data:`, window.lichessTrackerData);
+                        activeSolved = window.lichessTrackerData.solved;
+                        activeKey = window.lichessTrackerData.key;
+                        dataReceivedFromEvent = true; // Mark that we got data from alternative source
+                        return true;
+                    }
+                    console.log(`[MessageControl] Immediate window data ignored for ${globalDate}`);
                 }
                 return false;
             }
