@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.16
+// @version      1.18
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -11,25 +11,66 @@
 (function() {
     'use strict';
 
-    // --- SETTINGS ---
-
-    // Blocking interval #1: 13:00 to 18:00 (same day)
-    const blockStart1Hour = 13;
-    const blockStart1Minute = 0;
-    const blockEnd1Hour = 18;
-    const blockEnd1Minute = 0;
-
-    // Blocking interval #2: 21:00 to 23:59 (same day)
-    const blockStart2Hour = 21;
-    const blockStart2Minute = 0;
-    const blockEnd2Hour = 23;
-    const blockEnd2Minute = 59;
-
-    // Blocking interval #3: 00:00 to 8:00 (next day)
-    const blockStart3Hour = 0;
-    const blockStart3Minute = 0;
-    const blockEnd3Hour = 8;
-    const blockEnd3Minute = 0;
+    // --- SCHEDULE SETTINGS ---
+    // Каждый день содержит список окон, когда экран разблокирован (формат HH:MM).
+    const WEEK_SCHEDULE = createWeekSchedule([
+        {
+            name: 'Monday',
+            dayOfWeek: 1,
+            unlocked: [
+                { from: '09:00', to: '13:00' },
+                { from: '16:00', to: '21:00' }
+            ]
+        },
+        {
+            name: 'Tuesday',
+            dayOfWeek: 2,
+            unlocked: [
+                { from: '09:00', to: '13:00' },
+                { from: '16:00', to: '21:00' }
+            ]
+        },
+        {
+            name: 'Wednesday',
+            dayOfWeek: 3,
+            unlocked: [
+                { from: '09:00', to: '13:00' },
+                { from: '16:00', to: '21:00' }
+            ]
+        },
+        {
+            name: 'Thursday',
+            dayOfWeek: 4,
+            unlocked: [
+                { from: '09:00', to: '13:00' },
+                { from: '16:00', to: '21:00' }
+            ]
+        },
+        {
+            name: 'Friday',
+            dayOfWeek: 5,
+            unlocked: [
+                { from: '09:00', to: '13:00' },
+                { from: '16:00', to: '21:00' }
+            ]
+        },
+        {
+            name: 'Saturday',
+            dayOfWeek: 6,
+            unlocked: [
+                { from: '08:00', to: '13:00' },
+                { from: '18:00', to: '21:00' }
+            ]
+        },
+        {
+            name: 'Sunday',
+            dayOfWeek: 0,
+            unlocked: [
+                { from: '08:00', to: '13:00' },
+                { from: '18:00', to: '21:00' }
+            ]
+        }
+    ]);
 
     const warningMinutes = 20; // How many minutes before blocking to show timer
 
@@ -166,6 +207,75 @@
         return hours * 60 + minutes;
     }
 
+    function timeStringToMinutes(value) {
+        if (typeof value !== 'string') {
+            throw new Error(`[TimeBlocker] Invalid time string "${value}"`);
+        }
+        const [hoursPart, minutesPart = '0'] = value.split(':');
+        const hours = parseInt(hoursPart, 10);
+        const mins = parseInt(minutesPart, 10);
+        if (Number.isNaN(hours) || Number.isNaN(mins)) {
+            throw new Error(`[TimeBlocker] Unable to parse time string "${value}"`);
+        }
+        return timeToMinutes(hours, mins);
+    }
+
+    function createWeekSchedule(rawSchedule) {
+        const schedule = new Array(7).fill(null);
+        rawSchedule.forEach((dayConfig, orderIndex) => {
+            const dayIndex = typeof dayConfig.dayOfWeek === 'number'
+                ? dayConfig.dayOfWeek
+                : orderIndex;
+            if (dayIndex < 0 || dayIndex > 6) {
+                throw new Error(`[TimeBlocker] dayOfWeek должен быть в диапазоне 0-6, получено ${dayIndex}`);
+            }
+
+            const unlocked = (dayConfig.unlocked || []).map((period) => {
+                const startMinutes = timeStringToMinutes(period.from);
+                const endMinutes = timeStringToMinutes(period.to);
+                return {
+                    from: period.from,
+                    to: period.to,
+                    label: `${period.from}-${period.to}`,
+                    startMinutes,
+                    endMinutes
+                };
+            }).sort((a, b) => a.startMinutes - b.startMinutes);
+
+            const summary = unlocked.length ? unlocked.map((period) => period.label).join(', ') : 'нет окон';
+
+            schedule[dayIndex] = {
+                dayIndex,
+                name: dayConfig.name || `Day ${dayIndex}`,
+                unlocked,
+                summary
+            };
+        });
+
+        return schedule.map((dayConfig, index) => {
+            if (dayConfig) {
+                return dayConfig;
+            }
+            return {
+                dayIndex: index,
+                name: `Day ${index}`,
+                unlocked: [],
+                summary: 'нет окон'
+            };
+        });
+    }
+
+    function getDaySchedule(dayIndex) {
+        return WEEK_SCHEDULE[dayIndex] || null;
+    }
+
+    function findActiveUnlockedPeriod(daySchedule, currentMinutes) {
+        if (!daySchedule || daySchedule.unlocked.length === 0) {
+            return null;
+        }
+        return daySchedule.unlocked.find((period) => currentMinutes >= period.startMinutes && currentMinutes < period.endMinutes) || null;
+    }
+
     function getDateKey(date) {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -183,177 +293,44 @@
     // Function to check if current time is in any blocking interval
     function isInBlockingInterval(currentHour, currentMinute, dayOfWeekOverride) {
         const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        // Weekdays Mon-Thu: block everything EXCEPT 16:00-21:00 (Monday adds 11:00-14:00)
-        if (dayOfWeek >= 1 && dayOfWeek <= 4) {
-            const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
-            if (dayOfWeek === 1) { // Monday: 11:00-14:00 and 16:00-21:00 free
-                const mondayWindows = [
-                    { start: timeToMinutes(11, 0), end: timeToMinutes(14, 0) },
-                    { start: timeToMinutes(16, 0), end: timeToMinutes(21, 0) }
-                ];
-                const inAnyWindow = mondayWindows.some(({ start, end }) => currentTimeInMinutes >= start && currentTimeInMinutes < end);
-                console.log(`[TimeBlocker] Monday policy. Free windows 11:00-14:00, 16:00-21:00. In free window: ${inAnyWindow}`);
-                return !inAnyWindow;
-            }
-            const freeStart = timeToMinutes(16, 0);
-            const freeEnd = timeToMinutes(21, 0);
-            const inFreeWindow = currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd;
-            console.log(`[TimeBlocker] Tue-Thu policy. Free window 16:00-21:00. In free window: ${inFreeWindow}`);
-            return !inFreeWindow; // block outside free window
-        }
-        // Friday: block from 21:00
-        if (dayOfWeek === 5) { // Friday
-            const t = timeToMinutes(currentHour, currentMinute);
-            const isBlocked = t >= timeToMinutes(21, 0);
-            console.log(`[TimeBlocker] Friday policy. Block after 21:00: ${isBlocked}`);
-            return isBlocked;
-        }
-        // Weekends: custom windows
-        if (dayOfWeek === 6) { // Saturday: 08:00-13:00 and 18:00-21:00 free
-            const t = timeToMinutes(currentHour, currentMinute);
-            const saturdayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(13,0)) ||
-                                 (t >= timeToMinutes(18,0) && t < timeToMinutes(21,0));
-            console.log(`[TimeBlocker] Saturday policy. Free windows 08:00-13:00, 18:00-21:00. In free: ${saturdayFree}`);
-            return !saturdayFree;
-        }
-        if (dayOfWeek === 0) { // Sunday: 08:00-13:00 and 18:00-21:00 free
-            const t = timeToMinutes(currentHour, currentMinute);
-            const sundayFree = (t >= timeToMinutes(8,0) && t < timeToMinutes(13,0)) ||
-                               (t >= timeToMinutes(18,0) && t < timeToMinutes(21,0));
-            console.log(`[TimeBlocker] Sunday policy. Free windows 08:00-13:00, 18:00-21:00. In free: ${sundayFree}`);
-            return !sundayFree;
-        }
-        // Fallback to legacy (shouldn't reach here)
+        const daySchedule = getDaySchedule(dayOfWeek);
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
-        
-        // Debug logging
-        console.log(`[TimeBlocker] Current time: ${currentHour}:${currentMinute} (${currentTimeInMinutes} minutes)`);
-        
-        // Check interval 1: 13:00 to 18:00
-        const start1Minutes = timeToMinutes(blockStart1Hour, blockStart1Minute);
-        const end1Minutes = timeToMinutes(blockEnd1Hour, blockEnd1Minute);
-        console.log(`[TimeBlocker] Interval 1: ${blockStart1Hour}:${blockStart1Minute} to ${blockEnd1Hour}:${blockEnd1Minute} (${start1Minutes} to ${end1Minutes})`);
-        
-        if (currentTimeInMinutes >= start1Minutes && currentTimeInMinutes < end1Minutes) {
-            console.log(`[TimeBlocker] Blocked by interval 1 (13:00-18:00)`);
+
+        if (!daySchedule) {
+            console.log(`[TimeBlocker] Нет расписания для дня ${dayOfWeek}. Блокируем по умолчанию.`);
             return true;
         }
-        
-        // Check interval 2: 21:00 to 23:59
-        const start2Minutes = timeToMinutes(blockStart2Hour, blockStart2Minute);
-        const end2Minutes = timeToMinutes(blockEnd2Hour, blockEnd2Minute);
-        console.log(`[TimeBlocker] Interval 2: ${blockStart2Hour}:${blockStart2Minute} to ${blockEnd2Hour}:${blockEnd2Minute} (${start2Minutes} to ${end2Minutes})`);
-        
-        if (currentTimeInMinutes >= start2Minutes && currentTimeInMinutes < end2Minutes) {
-            console.log(`[TimeBlocker] Blocked by interval 2 (21:00-23:59)`);
+
+        if (daySchedule.unlocked.length === 0) {
+            console.log(`[TimeBlocker] ${daySchedule.name}: окна разблокировки отсутствуют.`);
             return true;
         }
-        
-        // Check interval 3: 00:00 to 8:00
-        const start3Minutes = timeToMinutes(blockStart3Hour, blockStart3Minute);
-        const end3Minutes = timeToMinutes(blockEnd3Hour, blockEnd3Minute);
-        console.log(`[TimeBlocker] Interval 3: ${blockStart3Hour}:${blockStart3Minute} to ${blockEnd3Hour}:${blockEnd3Minute} (${start3Minutes} to ${end3Minutes})`);
-        
-        if (currentTimeInMinutes >= start3Minutes && currentTimeInMinutes < end3Minutes) {
-            console.log(`[TimeBlocker] Blocked by interval 3 (00:00-8:00)`);
-            return true;
-        }
-        
-        console.log(`[TimeBlocker] Not blocked`);
-        return false;
+
+        const activePeriod = findActiveUnlockedPeriod(daySchedule, currentTimeInMinutes);
+        const activeLabel = activePeriod ? activePeriod.label : 'нет';
+        console.log(`[TimeBlocker] ${daySchedule.name}: окна разблокировки ${daySchedule.summary}. Активное окно: ${activeLabel}`);
+        return !activePeriod;
     }
 
     // Function to calculate time until next blocking starts
     function getTimeUntilBlocking(currentHour, currentMinute, dayOfWeekOverride) {
         const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        // Mon-Thu: Only free window 16:00-21:00 (11:00-14:00 extra on Monday)
-        if (dayOfWeek >= 1 && dayOfWeek <= 4) {
-            const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
-            if (dayOfWeek === 1) { // Monday windows
-                const mondayWindows = [
-                    { start: timeToMinutes(11, 0), end: timeToMinutes(14, 0), label: '11:00-14:00' },
-                    { start: timeToMinutes(16, 0), end: timeToMinutes(21, 0), label: '16:00-21:00' }
-                ];
-                const activeWindow = mondayWindows.find(({ start, end }) => currentTimeInMinutes >= start && currentTimeInMinutes < end);
-                if (activeWindow) {
-                    const remaining = activeWindow.end - currentTimeInMinutes;
-                    console.log(`[TimeBlocker] Monday free window (${activeWindow.label}) active. Blocking resumes in ${remaining} minutes`);
-                    return remaining;
-                }
-                return 0;
-            }
-            const freeStart = timeToMinutes(16, 0);
-            const freeEnd = timeToMinutes(21, 0);
-            if (currentTimeInMinutes >= freeStart && currentTimeInMinutes < freeEnd) {
-                const remaining = freeEnd - currentTimeInMinutes;
-                console.log(`[TimeBlocker] Tue-Thu free window active. Blocking resumes in ${remaining} minutes`);
-                return remaining;
-            }
-            // Already blocked outside free window
+        const daySchedule = getDaySchedule(dayOfWeek);
+
+        if (!daySchedule || daySchedule.unlocked.length === 0) {
             return 0;
         }
-        // Friday: show minutes until 21:00 when before it
-        if (dayOfWeek === 5) {
-            const t = timeToMinutes(currentHour, currentMinute);
-            const blockAt = timeToMinutes(21,0);
-            if (t < blockAt) {
-                const remaining = blockAt - t;
-                console.log(`[TimeBlocker] Friday countdown. Blocking in ${remaining} minutes`);
-                return remaining;
-            }
-            return 0;
-        }
-        // Weekends: show time until next block only if in a free window
-        if (dayOfWeek === 6) { // Saturday
-            const t = timeToMinutes(currentHour, currentMinute);
-            const morningStart = timeToMinutes(8,0);
-            const morningEnd   = timeToMinutes(13,0);
-            const eveningStart = timeToMinutes(18,0);
-            const eveningEnd   = timeToMinutes(21,0);
-            if (t >= morningStart && t < morningEnd) return morningEnd - t;
-            if (t >= eveningStart && t < eveningEnd) return eveningEnd - t;
-            return 0;
-        }
-        if (dayOfWeek === 0) { // Sunday
-            const t = timeToMinutes(currentHour, currentMinute);
-            const morningStart = timeToMinutes(8,0);
-            const morningEnd   = timeToMinutes(13,0);
-            const eveningStart = timeToMinutes(18,0);
-            const eveningEnd   = timeToMinutes(21,0);
-            if (t >= morningStart && t < morningEnd) return morningEnd - t;
-            if (t >= eveningStart && t < eveningEnd) return eveningEnd - t;
-            return 0;
-        }
-        // Fallback to legacy (shouldn't reach here)
+
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
-        
-        // Calculate time until each interval starts
-        const intervals = [
-            { name: 'Interval 1', startHour: blockStart1Hour, startMinute: blockStart1Minute },
-            { name: 'Interval 2', startHour: blockStart2Hour, startMinute: blockStart2Minute },
-            { name: 'Interval 3', startHour: blockStart3Hour, startMinute: blockStart3Minute }
-        ];
-        
-        let minTimeUntilBlock = Infinity;
-        let nextIntervalName = '';
-        
-        intervals.forEach(interval => {
-            const startMinutes = timeToMinutes(interval.startHour, interval.startMinute);
-            let timeUntilBlock = startMinutes - currentTimeInMinutes;
-            
-            // If negative, it means the interval starts tomorrow
-            if (timeUntilBlock < 0) {
-                timeUntilBlock = 24 * 60 + timeUntilBlock;
-            }
-            
-            if (timeUntilBlock < minTimeUntilBlock) {
-                minTimeUntilBlock = timeUntilBlock;
-                nextIntervalName = interval.name;
-            }
-        });
-        
-        console.log(`[TimeBlocker] Next blocking in ${minTimeUntilBlock} minutes (${nextIntervalName})`);
-        return minTimeUntilBlock;
+        const activePeriod = findActiveUnlockedPeriod(daySchedule, currentTimeInMinutes);
+
+        if (!activePeriod) {
+            return 0;
+        }
+
+        const remaining = activePeriod.endMinutes - currentTimeInMinutes;
+        console.log(`[TimeBlocker] ${daySchedule.name}: активное окно ${activePeriod.label}. До блокировки ${remaining} минут`);
+        return remaining;
     }
 
     // Main blocking logic
