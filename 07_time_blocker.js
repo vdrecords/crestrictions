@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.18
+// @version      1.19
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -51,7 +51,8 @@
             dayOfWeek: 5,
             unlocked: [
                 { from: '09:00', to: '13:00' },
-                { from: '16:00', to: '21:00' }
+                { from: '15:30', to: '16:20' },
+                { from: '18:00', to: '21:00' }
             ]
         },
         {
