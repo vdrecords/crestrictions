@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         05_message_control - Контроль сообщений по задачам
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.4
 // @description  Универсальный контроль отправки сообщений на основе количества решённых задач. Автоматически определяет активный трекер (ChessKing или Lichess)
 // @match        https://lichess.org/inbox/*
 // @match        https://lichess.org/forum/*
@@ -23,6 +23,7 @@
     // === Settings ===
     // ==============================
     const tasksPerMessage = 10;     // Tasks required per message (updated to match user's settings)
+    const INFO_CLASS = 'message-control-indicator';
 
     // =================================
     // === Helper Functions ===
@@ -139,13 +140,14 @@
         let dataReceivedFromEvent = false; // Track if we got data from custom event
         
         const messageFormSelectors = [
-            '.msg-app__convo__post',                  // личные сообщения
-            'form.form3.reply',                       // ответы в форуме
-            'form.form3:not(.reply)',                 // создание тем
-            'form#team-message-form',                 // командные рассылки (старый вариант)
-            'form.team-message',                      // командные рассылки (новый вариант)
-            'form[action*="/team/"][action*="/pm"]',  // дополнительные формы команды
-            'form[action*="/team/"][action*="/messages"]'
+            '.msg-app__convo__post',                      // личные сообщения
+            'form.form3.reply',                           // ответы в форуме
+            'form.form3:not(.reply)',                     // создание тем
+            'form#team-message-form',                     // командные рассылки (старый вариант)
+            'form.team-message',                          // командные рассылки (новый вариант)
+            'form[action*="/team/"][action*="/pm"]',      // дополнительные формы команды
+            'form[action*="/team/"][action*="/messages"]',
+            'form[action*="/inbox/"]'
         ];
 
         function extractDateFromKey(key) {
@@ -344,13 +346,33 @@
 
             // 3) Form initialization
             function initFormControl(form) {
-                if (!form || form.dataset.msgCtrlInit) return;
+                if (!form) return;
                 const ta  = form.querySelector('textarea');
                 const btn = form.querySelector('button[type="submit"], button:not([type]), input[type="submit"]');
                 if (!ta || !btn) return;
 
+                if (form.dataset.msgCtrlInit === '1') {
+                    if (!form.querySelector(`.${INFO_CLASS}`)) {
+                        const info = document.createElement('div');
+                        info.className = INFO_CLASS;
+                        info.style.cssText = 'font-size:12px;color:#c00;margin-top:4px;margin-left:4px;';
+                        ta.parentNode.insertBefore(info, ta.nextSibling);
+                        const { solved, allowed, sent, remaining } = getCounts();
+                        const tasksToNext = tasksPerMessage - (solved % tasksPerMessage);
+                        info.textContent = remaining > 0
+                            ? `Доступно сообщений: ${remaining} из ${allowed} (решено ${solved} задач)`
+                            : `Нет доступных сообщений. Решите ещё ${tasksToNext} задач (решено ${solved} задач)`;
+                    }
+                    return;
+                }
+
+                let lastTextareaValue = ta.value;
+                let messagePending = false;
+                let sendIntent = false;
+
                 // Create indicator next to textarea
                 const info = document.createElement('div');
+                info.className = INFO_CLASS;
                 info.style.cssText = 'font-size:12px;color:#c00;margin-top:4px;margin-left:4px;';
                 ta.parentNode.insertBefore(info, ta.nextSibling);
 
@@ -374,26 +396,28 @@
                         e.preventDefault();
                         e.stopImmediatePropagation();
                         console.log(`[MessageControl] Blocked form submission - no messages remaining`);
+                        sendIntent = false;
                     } else {
                         // Allow submission and increment counter
                         console.log(`[MessageControl] Allowing form submission, incrementing counter from ${cnt.sent} to ${cnt.sent + 1}`);
+                        sendIntent = true;
+                        messagePending = true; // Prevent duplicate counting from AJAX detectors
                         writeGMNumber(keyMessageCount, cnt.sent + 1);
                         setTimeout(() => {
                             refresh();
                             console.log(`[MessageControl] Form refreshed after submission`);
+                            messagePending = false;
+                            sendIntent = false;
                         }, 500); // Increased delay for better detection
                     }
                 }, true);
 
                 // Enhanced AJAX detection using MutationObserver
-                let lastTextareaValue = ta.value;
-                let messagePending = false;
-                
                 // Monitor textarea changes to detect message sending
                 const observer = new MutationObserver((mutations) => {
                     const currentValue = ta.value;
                     // If textarea was cleared and we had content before, message was likely sent
-                    if (lastTextareaValue.trim() !== '' && currentValue.trim() === '' && !messagePending) {
+                    if (lastTextareaValue.trim() !== '' && currentValue.trim() === '' && !messagePending && sendIntent) {
                         console.log(`[MessageControl] Textarea cleared detected - message likely sent via AJAX`);
                         messagePending = true;
                         setTimeout(() => {
@@ -402,6 +426,7 @@
                             writeGMNumber(keyMessageCount, newCount + 1);
                             refresh();
                             messagePending = false;
+                            sendIntent = false;
                         }, 100);
                     }
                     lastTextareaValue = currentValue;
@@ -419,7 +444,7 @@
                 // Also monitor value changes via input event
                 ta.addEventListener('input', () => {
                     const currentValue = ta.value;
-                    if (lastTextareaValue.trim() !== '' && currentValue.trim() === '' && !messagePending) {
+                    if (lastTextareaValue.trim() !== '' && currentValue.trim() === '' && !messagePending && sendIntent) {
                         console.log(`[MessageControl] Input event - textarea cleared, message sent`);
                         messagePending = true;
                         setTimeout(() => {
@@ -428,6 +453,7 @@
                             writeGMNumber(keyMessageCount, newCount + 1);
                             refresh();
                             messagePending = false;
+                            sendIntent = false;
                         }, 100);
                     }
                     lastTextareaValue = currentValue;
@@ -443,8 +469,10 @@
                         e.preventDefault();
                         e.stopImmediatePropagation();
                         console.log(`[MessageControl] Blocked button click - no messages remaining`);
+                        sendIntent = false;
                     } else {
                         console.log(`[MessageControl] Button click allowed - counting handled by other detection methods`);
+                        sendIntent = true;
                     }
                 }, true);
 
@@ -458,8 +486,10 @@
                             e.preventDefault();
                             e.stopImmediatePropagation();
                             console.log(`[MessageControl] Blocked Enter key - no messages remaining`);
+                            sendIntent = false;
                         } else {
                             console.log(`[MessageControl] Enter key allowed - counting handled by other detection methods`);
+                            sendIntent = true;
                         }
                     }
                 });
