@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.14
+// @version      1.16
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -19,6 +19,11 @@
     // === Core Settings ===
     const SPECIAL_TARGET_DATE = '2025-10-12';
     const SPECIAL_TARGET_VALUE = 3;
+
+    // Chess.com puzzles access: allow puzzles pages when enabled
+    const ENABLE_CHESS_COM_PUZZLES_MODE = true; // Toggle to allow Chess.com puzzles pages
+    const CHESS_COM_PUZZLES_ALLOWED_HOSTS = ['www.chess.com', 'chess.com'];
+    const CHESS_COM_PUZZLES_ALLOWED_ROOT = '/puzzles';
 
     // ==============================
     // Dynamic target: Mon-Thu 500, Fri 200, Weekend 1000 (override on SPECIAL_TARGET_DATE)
@@ -114,6 +119,14 @@
 
         const hostname = window.location.hostname;
         const pathname = window.location.pathname;
+
+        const isChessComHost = CHESS_COM_PUZZLES_ALLOWED_HOSTS.includes(hostname);
+        const chessRootWithSlash = `${CHESS_COM_PUZZLES_ALLOWED_ROOT}/`;
+        const isWithinChessPuzzles = isChessComHost && (
+            pathname === CHESS_COM_PUZZLES_ALLOWED_ROOT ||
+            pathname.startsWith(chessRootWithSlash)
+        );
+        const isChessPuzzlesAllowedPage = ENABLE_CHESS_COM_PUZZLES_MODE && isWithinChessPuzzles;
         
         // Check if current page is racer-related (allowed when goal not met)
         const isRacerRelated = hostname === 'lichess.org' && (
@@ -130,8 +143,9 @@
         );
         
         // Any non-Lichess page OR Lichess pages that aren't racer/utility should be redirected if goal not met
-        const isOtherPage = hostname !== 'lichess.org' || 
+        const baseOtherPage = hostname !== 'lichess.org' || 
             (!isRacerRelated && !isLichessUtilityPage);
+        const isOtherPage = !isChessPuzzlesAllowedPage && baseOtherPage;
         
         // Check if this is a racer page (including active races)
         const isRacerPage = hostname === 'lichess.org' && (
@@ -140,6 +154,7 @@
             pathname.includes('/racer')
         );
         const isRacerLobby = hostname === 'lichess.org' && pathname === '/racer';
+
 
         // Reset keys at midnight (only if it's actually a new day)
         const savedDate = GM_getValue('racer_tracker_date', null);
@@ -205,6 +220,7 @@
         console.log(`[RacerTracker] Page classification:`);
         console.log(`[RacerTracker]   - isRacerRelated: ${isRacerRelated}`);
         console.log(`[RacerTracker]   - isLichessUtilityPage: ${isLichessUtilityPage}`);
+        console.log(`[RacerTracker]   - isChessPuzzlesAllowedPage: ${isChessPuzzlesAllowedPage}`);
         console.log(`[RacerTracker]   - isOtherPage: ${isOtherPage}`);
         console.log(`[RacerTracker]   - isRacerPage: ${isRacerPage}`);
         console.log(`[RacerTracker]   - hostname: ${hostname}`);
@@ -654,6 +670,21 @@
             publishSharedProgress(racerPuzzles);
             
             console.log(`[RacerTracker] Updated GM storage for utility page: ${racerPuzzles} puzzles`);
+        }
+
+        if (isChessPuzzlesAllowedPage) {
+            console.log("[RacerTracker] Chess.com puzzles mode enabled — allowing puzzles section");
+            
+            if (document.body) document.body.style.visibility = '';
+            
+            const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
+            const unlockRemaining = Math.max(minTasksPerDay - racerPuzzles, 0);
+            writeGMNumber(keyDailyCount, racerPuzzles);
+            writeGMNumber(keyCachedSolved, racerPuzzles);
+            writeGMNumber(keyCachedUnlock, unlockRemaining);
+            publishSharedProgress(racerPuzzles);
+            
+            console.log(`[RacerTracker] Synced GM storage for Chess.com puzzles page: ${racerPuzzles} puzzles`);
         }
 
         // Make global debug functions available

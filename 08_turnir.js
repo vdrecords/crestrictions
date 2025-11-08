@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         08_turnir - Турнир
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Разрешает курс ChessKing #72 и два режима задач Chess.com; все прочие страницы полностью блокируются с сообщением и ссылками. На ChessKing включены мгновенные анимации и автоклик.
 // @match        *://*/*
 // @grant        none
@@ -13,7 +13,7 @@
 
     // Разрешённые URL
     const allowed = [
-        'https://learn.chessking.com/learning/course/72',
+        //'https://learn.chessking.com/learning/course/72',
         'https://www.chess.com/puzzles/battle',
         'https://www.chess.com/puzzles/rush'
     ];
