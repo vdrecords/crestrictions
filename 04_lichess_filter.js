@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         04_lichess_filter - Фильтр контента Lichess (только Блиц+Рапид)
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Показ только Блиц и Рапид на Lichess, скрытие кнопок участия и досок для других типов игр
 // @match        https://lichess.org/*
 // @grant        GM_addStyle
@@ -10,6 +10,24 @@
 
 (function () {
     'use strict';
+
+    const SPECIAL_DISABLE_DATE = '2025-11-16'; // День, когда фильтр полностью отключён
+
+    function formatDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function isSpecialDisableDay(date = new Date()) {
+        return formatDateKey(date) === SPECIAL_DISABLE_DATE;
+    }
+
+    if (isSpecialDisableDay()) {
+        console.log(`[LichessFilter] Disabled for special date ${SPECIAL_DISABLE_DATE}`);
+        return;
+    }
 
     // ==============================================
     // === Lichess – Only Blitz & Rapid (CSS) ===

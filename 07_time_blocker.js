@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.19
+// @version      1.20
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -10,6 +10,12 @@
 
 (function() {
     'use strict';
+
+    // --- ОСОБЫЕ ДАТЫ И ИНТЕРВАЛЫ ---
+    const SPECIAL_UNLOCK_DATE = '2025-09-28'; // День, когда экран открыт до SPECIAL_UNLOCK_END_MINUTES
+    const SPECIAL_UNLOCK_END_MINUTES = 21 * 60; // Окончание спец-разблокировки (21:00) в минутах с полуночи
+    const SPECIAL_MORNING_INTERVAL_DATE = '2025-11-16'; // День с продлённым утренним окном
+    const SPECIAL_MORNING_INTERVAL_END = '14:00'; // Время окончания утреннего окна для спец-дня
 
     // --- SCHEDULE SETTINGS ---
     // Каждый день содержит список окон, когда экран разблокирован (формат HH:MM).
@@ -79,8 +85,6 @@
 
     const OVERLAY_ID = 'time-blocker-overlay';
     const ALLOWED_CLASS = 'time-blocker-allowed';
-    const SPECIAL_UNLOCK_DATE = '2025-09-28'; // YYYY-MM-DD
-    const SPECIAL_UNLOCK_END_MINUTES = 21 * 60; // 21:00 local time
 
     let mainCheckInterval = null; // Variable for main check interval
     let currentlyBlocked = false;
@@ -270,6 +274,53 @@
         return WEEK_SCHEDULE[dayIndex] || null;
     }
 
+    function getEffectiveDaySchedule(dayIndex, date) {
+        const daySchedule = getDaySchedule(dayIndex);
+        if (!daySchedule) {
+            return null;
+        }
+        return applySpecialMorningIntervalOverride(daySchedule, date);
+    }
+
+    function applySpecialMorningIntervalOverride(daySchedule, date) {
+        if (!(date instanceof Date)) {
+            return daySchedule;
+        }
+        const dateKey = getDateKey(date);
+        if (dateKey !== SPECIAL_MORNING_INTERVAL_DATE) {
+            return daySchedule;
+        }
+        if (!daySchedule.unlocked.length) {
+            return daySchedule;
+        }
+
+        const overrideMinutes = timeStringToMinutes(SPECIAL_MORNING_INTERVAL_END);
+        const currentFirstPeriod = daySchedule.unlocked[0];
+        if (currentFirstPeriod.endMinutes >= overrideMinutes) {
+            return daySchedule;
+        }
+
+        const updatedUnlocked = daySchedule.unlocked.map((period, index) => {
+            if (index !== 0) {
+                return { ...period };
+            }
+            return {
+                ...period,
+                to: SPECIAL_MORNING_INTERVAL_END,
+                label: `${period.from}-${SPECIAL_MORNING_INTERVAL_END}`,
+                endMinutes: overrideMinutes
+            };
+        });
+
+        return {
+            ...daySchedule,
+            unlocked: updatedUnlocked,
+            summary: updatedUnlocked.length
+                ? updatedUnlocked.map((period) => period.label).join(', ')
+                : 'нет окон'
+        };
+    }
+
     function findActiveUnlockedPeriod(daySchedule, currentMinutes) {
         if (!daySchedule || daySchedule.unlocked.length === 0) {
             return null;
@@ -292,9 +343,10 @@
     }
 
     // Function to check if current time is in any blocking interval
-    function isInBlockingInterval(currentHour, currentMinute, dayOfWeekOverride) {
-        const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        const daySchedule = getDaySchedule(dayOfWeek);
+    function isInBlockingInterval(currentHour, currentMinute, dayOfWeekOverride, dateOverride) {
+        const now = dateOverride instanceof Date ? dateOverride : new Date();
+        const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const daySchedule = getEffectiveDaySchedule(dayOfWeek, now);
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
 
         if (!daySchedule) {
@@ -314,9 +366,10 @@
     }
 
     // Function to calculate time until next blocking starts
-    function getTimeUntilBlocking(currentHour, currentMinute, dayOfWeekOverride) {
-        const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        const daySchedule = getDaySchedule(dayOfWeek);
+    function getTimeUntilBlocking(currentHour, currentMinute, dayOfWeekOverride, dateOverride) {
+        const now = dateOverride instanceof Date ? dateOverride : new Date();
+        const dayOfWeek = typeof dayOfWeekOverride === 'number' ? dayOfWeekOverride : now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const daySchedule = getEffectiveDaySchedule(dayOfWeek, now);
 
         if (!daySchedule || daySchedule.unlocked.length === 0) {
             return 0;
@@ -342,7 +395,7 @@
         const dayOfWeek = precomputed && typeof precomputed.dayOfWeek === 'number' ? precomputed.dayOfWeek : now.getDay();
         const baseShouldBlock = precomputed && typeof precomputed.baseShouldBlock === 'boolean'
             ? precomputed.baseShouldBlock
-            : isInBlockingInterval(currentHour, currentMinute, dayOfWeek);
+            : isInBlockingInterval(currentHour, currentMinute, dayOfWeek, now);
         const currentTimeInMinutes = timeToMinutes(currentHour, currentMinute);
         const specialUnlockActive = isSpecialUnlockActive(now, currentHour, currentMinute);
         const shouldBlock = specialUnlockActive ? false : baseShouldBlock;
@@ -362,7 +415,7 @@
         // Check if blocking time is approaching soon
         const timeUntilBlock = specialUnlockActive
             ? SPECIAL_UNLOCK_END_MINUTES - currentTimeInMinutes
-            : getTimeUntilBlocking(currentHour, currentMinute, dayOfWeek);
+            : getTimeUntilBlocking(currentHour, currentMinute, dayOfWeek, now);
 
         if (timeUntilBlock > 0 && timeUntilBlock <= warningMinutes) {
             console.log(`[TimeBlocker] Showing warning timer: ${timeUntilBlock} minutes until blocking`);
@@ -382,7 +435,7 @@
     console.log(`[TimeBlocker] Current time: ${debugNow.getHours()}:${debugNow.getMinutes()}`);
 
     const initialDayOfWeek = debugNow.getDay();
-    const initialBaseShouldBlock = isInBlockingInterval(debugNow.getHours(), debugNow.getMinutes(), initialDayOfWeek);
+    const initialBaseShouldBlock = isInBlockingInterval(debugNow.getHours(), debugNow.getMinutes(), initialDayOfWeek, debugNow);
     const initialSpecialUnlockActive = isSpecialUnlockActive(debugNow, debugNow.getHours(), debugNow.getMinutes());
     const initialEffectiveShouldBlock = initialSpecialUnlockActive ? false : initialBaseShouldBlock;
 
