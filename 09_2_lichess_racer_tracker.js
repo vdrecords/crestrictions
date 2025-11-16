@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.16
+// @version      1.17
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -41,6 +41,7 @@
     
     // For compatibility with message control script (uses same GM key format)
     const COMPATIBILITY_ID   = 72;         // Fixed ID for GM key compatibility
+    const DAILY_UNLOCK_FLAG_PREFIX = 'daily_unlock_flag';
 
     // =================================
     // === Helper Functions ===
@@ -83,12 +84,57 @@
         }
     }
 
+    function getDailyUnlockFlagKey(dateKey, courseId = COMPATIBILITY_ID) {
+        return `${DAILY_UNLOCK_FLAG_PREFIX}_${courseId}_${dateKey}`;
+    }
+
+    function isDailyUnlockGrantedForDate(dateKey) {
+        return GM_getValue(getDailyUnlockFlagKey(dateKey), '0') === '1';
+    }
+
+    function setDailyUnlockFlag(dateKey, granted) {
+        const key = getDailyUnlockFlagKey(dateKey);
+        const newValue = granted ? '1' : '0';
+        const previousValue = GM_getValue(key, null);
+        if (previousValue === newValue) {
+            return;
+        }
+        GM_setValue(key, newValue);
+        console.log(`[RacerTracker] Daily unlock flag for ${dateKey} set to ${newValue}`);
+        try {
+            window.dispatchEvent(new CustomEvent('lichessRacerUnlockFlag', {
+                detail: { date: dateKey, granted, key }
+            }));
+        } catch (e) {
+            console.log('[RacerTracker] Failed to dispatch unlock flag event', e);
+        }
+    }
+
+    function ensureDailyUnlockFlag(dateKey) {
+        const key = getDailyUnlockFlagKey(dateKey);
+        if (GM_getValue(key, null) === null) {
+            GM_setValue(key, '0');
+            console.log(`[RacerTracker] Initialized daily unlock flag for ${dateKey}`);
+        }
+    }
+
+    function syncDailyUnlockFlag(currentSolved, dateKey) {
+        const shouldGrant = currentSolved >= minTasksPerDay;
+        const currentlyGranted = isDailyUnlockGrantedForDate(dateKey);
+        if (shouldGrant && !currentlyGranted) {
+            setDailyUnlockFlag(dateKey, true);
+        } else if (!shouldGrant && currentlyGranted) {
+            setDailyUnlockFlag(dateKey, false);
+        }
+    }
+
     // ===============================
     // === RACER TRACKER LOGIC ===
     // ===============================
     (function() {
         const racerPageURL = 'https://lichess.org/racer';
         const dateKey = getTodayDateString();
+        ensureDailyUnlockFlag(dateKey);
 
         // GM keys for compatibility with message control script
         const keyDailyCount   = `daily_solved_${COMPATIBILITY_ID}_${dateKey}`;
@@ -180,6 +226,12 @@
                     writeGMNumber(keyCachedUnlock, minTasksPerDay);
                     writeGMNumber(keyRacerPuzzles, 0);
                     publishSharedProgress(0);
+                    setDailyUnlockFlag(dateKey, false);
+                    if (savedDate) {
+                        const prevFlagKey = getDailyUnlockFlagKey(savedDate);
+                        GM_deleteValue(prevFlagKey);
+                        console.log(`[RacerTracker] Cleared previous unlock flag ${prevFlagKey}`);
+                    }
                     
                     // Clean up old processed race data (keep only last 7 days)
                     const allKeys = [];
@@ -205,9 +257,13 @@
                 } else {
                     console.log(`[RacerTracker] Date appears to be same or earlier (${savedDate} -> ${dateKey}) — NOT resetting keys`);
                     GM_setValue('racer_tracker_date', dateKey);
+                    ensureDailyUnlockFlag(dateKey);
                 }
             }
         }
+
+        const initialRacerCount = readGMNumber(keyRacerPuzzles) || 0;
+        syncDailyUnlockFlag(initialRacerCount, dateKey);
 
         // If NOT racer-related, hide body until check
         if (isOtherPage && document.body) {
@@ -431,6 +487,7 @@
             console.log(`[RacerTracker] Updated counts - Daily: ${newRacerPuzzles}, Racer: ${newRacerPuzzles}, Remaining: ${newUnlockRemaining}`);
             
             publishSharedProgress(newRacerPuzzles);
+            syncDailyUnlockFlag(newRacerPuzzles, dateKey);
             
             // Race is already marked as processed by extractRacePuzzleResults
             if (raceId) {
@@ -605,6 +662,8 @@
             
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
             const unlockRemaining = Math.max(minTasksPerDay - racerPuzzles, 0);
+            syncDailyUnlockFlag(racerPuzzles, dateKey);
+            const unlockGranted = isDailyUnlockGrantedForDate(dateKey);
             
             // Update GM storage
             writeGMNumber(keyDailyCount, racerPuzzles);
@@ -614,11 +673,14 @@
             
             console.log(`[RacerTracker] Current progress - Puzzles solved: ${racerPuzzles}, Remaining: ${unlockRemaining}`);
             
-            if (unlockRemaining > 0) {
-                console.log(`[RacerTracker] ${unlockRemaining} puzzles remaining - Redirecting to Lichess racer`);
+            if (!unlockGranted) {
+                console.log(`[RacerTracker] Unlock flag inactive (remaining ${unlockRemaining}) - Redirecting to Lichess racer`);
                 window.location.replace(racerPageURL);
             } else {
-                console.log("[RacerTracker] Daily puzzle goal met, showing page");
+                if (unlockRemaining > 0) {
+                    console.warn(`[RacerTracker] Unlock flag active but ${unlockRemaining} puzzles still recorded - allowing page but please verify counts`);
+                }
+                console.log("[RacerTracker] Daily puzzle goal met (unlock flag active), showing page");
                 if (document.body) document.body.style.visibility = '';
             }
             return;
@@ -660,11 +722,15 @@
         // For Lichess utility pages: allow access and update GM storage
         if (isLichessUtilityPage) {
             console.log("[RacerTracker] On Lichess utility page, allowing access");
-            
-            // Always show utility pages
+            const unlockGranted = isDailyUnlockGrantedForDate(dateKey);
+            if (!unlockGranted) {
+                console.log('[RacerTracker] Utility page blocked - unlock flag inactive');
+                window.location.replace(racerPageURL);
+                return;
+            }
+
             if (document.body) document.body.style.visibility = '';
-            
-            // Update GM storage for message control compatibility
+
             const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
             writeGMNumber(keyDailyCount, racerPuzzles);
             publishSharedProgress(racerPuzzles);
@@ -711,6 +777,7 @@
                 writeGMNumber(keyCachedSolved, 0);
                 writeGMNumber(keyCachedUnlock, minTasksPerDay);
                 publishSharedProgress(0);
+                setDailyUnlockFlag(dateKey, false);
                 updateProgressWindow();
             },
             clearProcessedRaces: () => {

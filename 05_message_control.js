@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         05_message_control - Контроль сообщений по задачам
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Универсальный контроль отправки сообщений на основе количества решённых задач. Автоматически определяет активный трекер (ChessKing или Lichess)
 // @match        https://lichess.org/inbox/*
 // @match        https://lichess.org/forum/*
@@ -24,6 +24,7 @@
     // ==============================
     const tasksPerMessage = 10;     // Tasks required per message (updated to match user's settings)
     const INFO_CLASS = 'message-control-indicator';
+    const DAILY_UNLOCK_FLAG_PREFIX = 'daily_unlock_flag';
 
     // =================================
     // === Helper Functions ===
@@ -80,6 +81,14 @@
 
     function writeGMNumber(key, num) {
         GM_setValue(key, String(num));
+    }
+
+    function getDailyUnlockFlagKey(courseId, dateKey) {
+        return `${DAILY_UNLOCK_FLAG_PREFIX}_${courseId}_${dateKey}`;
+    }
+
+    function isDailyUnlockFlagActive(courseId, dateKey) {
+        return GM_getValue(getDailyUnlockFlagKey(courseId, dateKey), '0') === '1';
     }
 
     // === Message control logic ===
@@ -336,12 +345,15 @@
                 const sent      = readGMNumber(keyMessageCount) || 0;
                 const allowed   = Math.floor(solved / tasksPerMessage);
                 const remaining = allowed - sent;
+                const now = new Date();
+                const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                const unlockGranted = isDailyUnlockFlagActive(courseId, todayKey);
                 
                 // Debug logging
                 console.log(`[MessageControl] Debug - Solved: ${solved}, Sent: ${sent}, Allowed: ${allowed}, Remaining: ${remaining}`);
                 console.log(`[MessageControl] Reading from key: ${keyDailyCount}`);
                 
-                return { solved, allowed, sent, remaining };
+                return { solved, allowed, sent, remaining, unlockGranted };
             }
 
             // 3) Form initialization
@@ -351,17 +363,24 @@
                 const btn = form.querySelector('button[type="submit"], button:not([type]), input[type="submit"]');
                 if (!ta || !btn) return;
 
+                function composeInfoText(solved, allowed, remaining, tasksToNext, unlockGranted) {
+                    if (!unlockGranted) {
+                        return 'Сообщения заблокированы до выполнения гонок (флаг 09_2 не активен)';
+                    }
+                    return remaining > 0
+                        ? `Доступно сообщений: ${remaining} из ${allowed} (решено ${solved} задач)`
+                        : `Нет доступных сообщений. Решите ещё ${tasksToNext} задач (решено ${solved} задач)`;
+                }
+
                 if (form.dataset.msgCtrlInit === '1') {
                     if (!form.querySelector(`.${INFO_CLASS}`)) {
                         const info = document.createElement('div');
                         info.className = INFO_CLASS;
                         info.style.cssText = 'font-size:12px;color:#c00;margin-top:4px;margin-left:4px;';
                         ta.parentNode.insertBefore(info, ta.nextSibling);
-                        const { solved, allowed, sent, remaining } = getCounts();
+                        const { solved, allowed, remaining, unlockGranted } = getCounts();
                         const tasksToNext = tasksPerMessage - (solved % tasksPerMessage);
-                        info.textContent = remaining > 0
-                            ? `Доступно сообщений: ${remaining} из ${allowed} (решено ${solved} задач)`
-                            : `Нет доступных сообщений. Решите ещё ${tasksToNext} задач (решено ${solved} задач)`;
+                        info.textContent = composeInfoText(solved, allowed, remaining, tasksToNext, unlockGranted);
                     }
                     return;
                 }
@@ -378,24 +397,30 @@
 
                 // State update
                 function refresh() {
-                    const { solved, allowed, sent, remaining } = getCounts();
+                    const { solved, allowed, remaining, unlockGranted } = getCounts();
                     const tasksToNext = tasksPerMessage - (solved % tasksPerMessage);
-                    ta.disabled  = remaining <= 0;
-                    btn.disabled = remaining <= 0;
-                    info.textContent = remaining > 0
-                        ? `Доступно сообщений: ${remaining} из ${allowed} (решено ${solved} задач)`
-                        : `Нет доступных сообщений. Решите ещё ${tasksToNext} задач (решено ${solved} задач)`;
+                    const lockedByFlag = !unlockGranted;
+                    ta.disabled  = lockedByFlag || remaining <= 0;
+                    btn.disabled = ta.disabled;
+                    if (lockedByFlag) {
+                        console.log('[MessageControl] Blocking messaging — daily unlock flag inactive');
+                    }
+                    info.textContent = composeInfoText(solved, allowed, remaining, tasksToNext, unlockGranted);
                 }
                 refresh();
 
                 // Block submit when no messages remaining
                 form.addEventListener('submit', e => {
                     const cnt = getCounts();
-                    console.log(`[MessageControl] Form submit event triggered! Remaining: ${cnt.remaining}`);
-                    if (cnt.remaining <= 0) {
+                    console.log(`[MessageControl] Form submit event triggered! Remaining: ${cnt.remaining}, Unlock flag: ${cnt.unlockGranted}`);
+                    if (cnt.remaining <= 0 || !cnt.unlockGranted) {
                         e.preventDefault();
                         e.stopImmediatePropagation();
-                        console.log(`[MessageControl] Blocked form submission - no messages remaining`);
+                        if (!cnt.unlockGranted) {
+                            console.log('[MessageControl] Blocked form submission - unlock flag inactive');
+                        } else {
+                            console.log('[MessageControl] Blocked form submission - no messages remaining');
+                        }
                         sendIntent = false;
                     } else {
                         // Allow submission and increment counter
@@ -465,10 +490,14 @@
                     console.log(`[MessageControl] Button clicked! Current textarea value: '${ta.value.slice(0, 50)}...'`);
                     const cnt = getCounts();
                     console.log(`[MessageControl] Button click - Current count: Solved=${cnt.solved}, Sent=${cnt.sent}, Remaining=${cnt.remaining}`);
-                    if (cnt.remaining <= 0) {
+                    if (cnt.remaining <= 0 || !cnt.unlockGranted) {
                         e.preventDefault();
                         e.stopImmediatePropagation();
-                        console.log(`[MessageControl] Blocked button click - no messages remaining`);
+                        if (!cnt.unlockGranted) {
+                            console.log('[MessageControl] Blocked button click - unlock flag inactive');
+                        } else {
+                            console.log(`[MessageControl] Blocked button click - no messages remaining`);
+                        }
                         sendIntent = false;
                     } else {
                         console.log(`[MessageControl] Button click allowed - counting handled by other detection methods`);
@@ -482,10 +511,14 @@
                         console.log(`[MessageControl] Enter key pressed! Current textarea value: '${ta.value.slice(0, 50)}...'`);
                         const cnt = getCounts();
                         console.log(`[MessageControl] Enter key - Current count: Solved=${cnt.solved}, Sent=${cnt.sent}, Remaining=${cnt.remaining}`);
-                        if (cnt.remaining <= 0) {
+                        if (cnt.remaining <= 0 || !cnt.unlockGranted) {
                             e.preventDefault();
                             e.stopImmediatePropagation();
-                            console.log(`[MessageControl] Blocked Enter key - no messages remaining`);
+                            if (!cnt.unlockGranted) {
+                                console.log('[MessageControl] Blocked Enter key - unlock flag inactive');
+                            } else {
+                                console.log(`[MessageControl] Blocked Enter key - no messages remaining`);
+                            }
                             sendIntent = false;
                         } else {
                             console.log(`[MessageControl] Enter key allowed - counting handled by other detection methods`);
