@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         05_message_control - Контроль сообщений по задачам
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Универсальный контроль отправки сообщений на основе количества решённых задач. Автоматически определяет активный трекер (ChessKing или Lichess)
 // @match        https://lichess.org/inbox/*
 // @match        https://lichess.org/forum/*
@@ -25,6 +25,7 @@
     const tasksPerMessage = 10;     // Tasks required per message (updated to match user's settings)
     const INFO_CLASS = 'message-control-indicator';
     const DAILY_UNLOCK_FLAG_PREFIX = 'daily_unlock_flag';
+    const UNLOCK_FLAG_STORAGE_KEY = 'lichess_racer_unlock_flag';
 
     // =================================
     // === Helper Functions ===
@@ -89,6 +90,65 @@
 
     function isDailyUnlockFlagActive(courseId, dateKey) {
         return GM_getValue(getDailyUnlockFlagKey(courseId, dateKey), '0') === '1';
+    }
+
+    const unlockFlagCache = new Map();
+
+    function getUnlockFlagCacheKey(courseId, dateKey) {
+        return `${courseId}_${dateKey}`;
+    }
+
+    function cacheUnlockFlagState(courseId, dateKey, granted) {
+        if (!courseId || !dateKey) return;
+        unlockFlagCache.set(getUnlockFlagCacheKey(courseId, dateKey), !!granted);
+    }
+
+    function extractDateFromUnlockKey(key) {
+        if (!key) return null;
+        const match = key.match(/daily_unlock_flag_\d+_(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : null;
+    }
+
+    function extractCourseIdFromUnlockKey(key) {
+        if (!key) return null;
+        const match = key.match(/daily_unlock_flag_(\d+)_\d{4}-\d{2}-\d{2}/);
+        return match ? match[1] : null;
+    }
+
+    function readUnlockFlagFromSharedStorage(courseId, dateKey) {
+        const cacheKey = getUnlockFlagCacheKey(courseId, dateKey);
+        if (unlockFlagCache.has(cacheKey)) {
+            return unlockFlagCache.get(cacheKey);
+        }
+
+        const globalData = window.lichessRacerUnlockData;
+        if (globalData) {
+            const globalCourse = String(globalData.courseId ?? extractCourseIdFromUnlockKey(globalData.key || ''));
+            const globalDate = globalData.date || extractDateFromUnlockKey(globalData.key);
+            if (globalCourse === String(courseId) && globalDate === dateKey) {
+                const value = !!globalData.granted;
+                cacheUnlockFlagState(courseId, dateKey, value);
+                return value;
+            }
+        }
+
+        try {
+            const stored = localStorage.getItem(UNLOCK_FLAG_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                const storedCourse = String(parsed.courseId ?? extractCourseIdFromUnlockKey(parsed.key || ''));
+                const storedDate = parsed.date || extractDateFromUnlockKey(parsed.key);
+                if (storedCourse === String(courseId) && storedDate === dateKey) {
+                    const value = !!parsed.granted;
+                    cacheUnlockFlagState(courseId, dateKey, value);
+                    return value;
+                }
+            }
+        } catch (e) {
+            console.log('[MessageControl] Failed to read unlock flag from localStorage', e);
+        }
+
+        return null;
     }
 
     // === Message control logic ===
@@ -185,6 +245,19 @@
                 }
             });
         }
+
+        window.addEventListener('lichessRacerUnlockFlag', (event) => {
+            const detail = event.detail || {};
+            const eventDate = detail.date || extractDateFromUnlockKey(detail.key);
+            const eventCourseId = detail.courseId ? String(detail.courseId) : extractCourseIdFromUnlockKey(detail.key);
+            if (!eventCourseId || !eventDate) {
+                console.log('[MessageControl] Unlock flag event missing course/date info');
+                return;
+            }
+            cacheUnlockFlagState(eventCourseId, eventDate, !!detail.granted);
+            console.log(`[MessageControl] Received unlock flag event: courseId=${eventCourseId}, date=${eventDate}, granted=${detail.granted}`);
+            refreshAllInitializedForms();
+        });
 
         const todayKey = possibleKeys[0];
         const todaySolvedRaw = readGMNumber(todayKey);
@@ -347,7 +420,13 @@
                 const remaining = allowed - sent;
                 const now = new Date();
                 const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                const unlockGranted = isDailyUnlockFlagActive(courseId, todayKey);
+                let unlockGranted = isDailyUnlockFlagActive(courseId, todayKey);
+                const unlockOverride = readUnlockFlagFromSharedStorage(courseId, todayKey);
+                if (unlockOverride !== null) {
+                    unlockGranted = unlockOverride;
+                } else if (unlockGranted) {
+                    cacheUnlockFlagState(courseId, todayKey, true);
+                }
                 
                 // Debug logging
                 console.log(`[MessageControl] Debug - Solved: ${solved}, Sent: ${sent}, Allowed: ${allowed}, Remaining: ${remaining}`);

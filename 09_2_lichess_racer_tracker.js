@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.17
+// @version      1.18
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -17,7 +17,7 @@
 
     // ==============================
     // === Core Settings ===
-    const SPECIAL_TARGET_DATE = '2025-10-12';
+    const SPECIAL_TARGET_DATE = '2025-11-18';
     const SPECIAL_TARGET_VALUE = 3;
 
     // Chess.com puzzles access: allow puzzles pages when enabled
@@ -42,6 +42,7 @@
     // For compatibility with message control script (uses same GM key format)
     const COMPATIBILITY_ID   = 72;         // Fixed ID for GM key compatibility
     const DAILY_UNLOCK_FLAG_PREFIX = 'daily_unlock_flag';
+    const UNLOCK_FLAG_STORAGE_KEY = 'lichess_racer_unlock_flag';
 
     // =================================
     // === Helper Functions ===
@@ -92,18 +93,40 @@
         return GM_getValue(getDailyUnlockFlagKey(dateKey), '0') === '1';
     }
 
+    function persistUnlockFlagState(dateKey, granted) {
+        const payload = {
+            courseId: COMPATIBILITY_ID,
+            date: dateKey,
+            granted,
+            key: getDailyUnlockFlagKey(dateKey),
+            timestamp: Date.now()
+        };
+        try {
+            window.lichessRacerUnlockData = payload;
+        } catch (e) {
+            console.log('[RacerTracker] Failed to expose unlock state on window', e);
+        }
+        try {
+            localStorage.setItem(UNLOCK_FLAG_STORAGE_KEY, JSON.stringify(payload));
+        } catch (e) {
+            console.log('[RacerTracker] Failed to persist unlock flag to localStorage', e);
+        }
+    }
+
     function setDailyUnlockFlag(dateKey, granted) {
         const key = getDailyUnlockFlagKey(dateKey);
         const newValue = granted ? '1' : '0';
         const previousValue = GM_getValue(key, null);
         if (previousValue === newValue) {
+            persistUnlockFlagState(dateKey, granted);
             return;
         }
         GM_setValue(key, newValue);
         console.log(`[RacerTracker] Daily unlock flag for ${dateKey} set to ${newValue}`);
+        persistUnlockFlagState(dateKey, granted);
         try {
             window.dispatchEvent(new CustomEvent('lichessRacerUnlockFlag', {
-                detail: { date: dateKey, granted, key }
+                detail: { date: dateKey, granted, key, courseId: COMPATIBILITY_ID }
             }));
         } catch (e) {
             console.log('[RacerTracker] Failed to dispatch unlock flag event', e);
@@ -116,6 +139,7 @@
             GM_setValue(key, '0');
             console.log(`[RacerTracker] Initialized daily unlock flag for ${dateKey}`);
         }
+        persistUnlockFlagState(dateKey, isDailyUnlockGrantedForDate(dateKey));
     }
 
     function syncDailyUnlockFlag(currentSolved, dateKey) {
