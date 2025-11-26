@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.18
+// @version      1.19
 // @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
 // @include      *
 // @grant        GM_addStyle
@@ -26,14 +26,24 @@
     const CHESS_COM_PUZZLES_ALLOWED_ROOT = '/puzzles';
 
     // ==============================
-    // Dynamic target: Mon-Thu 500, Fri 200, Weekend 1000 (override on SPECIAL_TARGET_DATE)
+    // Explicit daily targets (Mon-Sun)
+    const WEEKLY_TASK_TARGETS = [
+        20,  // Monday
+        400,  // Tuesday
+        20,  // Wednesday
+        400,  // Thursday
+        200,  // Friday
+        1000, // Saturday
+        1000  // Sunday
+    ];
+
+    // Dynamic target: override on SPECIAL_TARGET_DATE
     function getMinTasksPerDay(date = new Date()) {
         const dateKey = formatDateKey(date);
         if (dateKey === SPECIAL_TARGET_DATE) return SPECIAL_TARGET_VALUE;
-        const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        if (day === 5) return 200;            // Friday
-        if (day === 6 || day === 0) return 1000; // Weekend
-        return 400;                           // Monday-Thursday
+        const jsDay = date.getDay(); // 0=Sun, ..., 6=Sat
+        const mondayBasedIndex = (jsDay + 6) % 7; // convert to Monday=0 ... Sunday=6
+        return WEEKLY_TASK_TARGETS[mondayBasedIndex] || WEEKLY_TASK_TARGETS[0];
     }
 
     let minTasksPerDay = getMinTasksPerDay();
