@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.19
-// @description  Трекер задач только для Lichess Racer, редиректы и мониторинг прогресса только по гонкам
+// @version      1.27
+// @description  Трекер задач Lichess Racer + ChessTempo, редиректы и мониторинг прогресса по разрешенным источникам
 // @include      *
 // @grant        GM_addStyle
 // @grant        GM_getValue
@@ -17,6 +17,7 @@
 
     // ==============================
     // === Core Settings ===
+    const SCRIPT_VERSION = '1.27';
     const SPECIAL_TARGET_DATE = '2025-11-18';
     const SPECIAL_TARGET_VALUE = 3;
 
@@ -24,6 +25,14 @@
     const ENABLE_CHESS_COM_PUZZLES_MODE = true; // Toggle to allow Chess.com puzzles pages
     const CHESS_COM_PUZZLES_ALLOWED_HOSTS = ['www.chess.com', 'chess.com'];
     const CHESS_COM_PUZZLES_ALLOWED_ROOT = '/puzzles';
+
+    // Puzzle source toggles (set list to ['lichess'], ['chesstempo'] or ['lichess','chesstempo'])
+    const ACTIVE_PUZZLE_SOURCES = ['lichess', 'chesstempo'];
+    const ENABLE_LICHESS_RACER = ACTIVE_PUZZLE_SOURCES.includes('lichess');
+    const ENABLE_CHESSTEMPO_TACTICS = ACTIVE_PUZZLE_SOURCES.includes('chesstempo');
+    const PREFERRED_PUZZLE_SOURCE = ACTIVE_PUZZLE_SOURCES[0] || 'lichess';
+    const DEBUG_SUPPRESS_GENERAL_LOGS = true;       // hide noisy logs while debugging ChessTempo next click
+    const DEBUG_CHESSTEMPO_NEXT_LOGS = true;        // show only targeted ChessTempo next-click debug
 
     // ==============================
     // Explicit daily targets (Mon-Sun)
@@ -48,6 +57,32 @@
 
     let minTasksPerDay = getMinTasksPerDay();
     console.log(`[RacerTracker] Daily target set: ${minTasksPerDay}`);
+    
+    // Logging controls
+    const __origLog   = console.log.bind(console);
+    const __origWarn  = console.warn.bind(console);
+    const __origError = console.error.bind(console);
+    if (DEBUG_SUPPRESS_GENERAL_LOGS) {
+        console.log = () => {};
+        console.debug = () => {};
+        console.info = () => {};
+    }
+    function nextLog(...args) {
+        if (!DEBUG_CHESSTEMPO_NEXT_LOGS) return;
+        __origLog('[NextDebug]', ...args);
+    }
+    function nextWarn(...args) {
+        if (!DEBUG_CHESSTEMPO_NEXT_LOGS) return;
+        __origWarn('[NextDebug]', ...args);
+    }
+    function descEl(el) {
+        if (!el) return 'null';
+        const tag = el.tagName ? el.tagName.toLowerCase() : 'node';
+        const id = el.id ? `#${el.id}` : '';
+        const cls = el.className ? `.${String(el.className).replace(/\s+/g, '.')}` : '';
+        const text = (el.textContent || '').trim().slice(0, 50);
+        return `${tag}${id}${cls} "${text}"`;
+    }
     
     // For compatibility with message control script (uses same GM key format)
     const COMPATIBILITY_ID   = 72;         // Fixed ID for GM key compatibility
@@ -166,7 +201,9 @@
     // === RACER TRACKER LOGIC ===
     // ===============================
     (function() {
+        console.log(`[RacerTracker] Script version: ${SCRIPT_VERSION}`);
         const racerPageURL = 'https://lichess.org/racer';
+        const chessTempoTacticsURL = 'https://chesstempo.com/chess-tactics/';
         const dateKey = getTodayDateString();
         ensureDailyUnlockFlag(dateKey);
 
@@ -197,6 +234,15 @@
             }
         }
 
+        function getTrainingRedirectTarget() {
+            if (PREFERRED_PUZZLE_SOURCE === 'chesstempo' && ENABLE_CHESSTEMPO_TACTICS) return chessTempoTacticsURL;
+            if (ENABLE_LICHESS_RACER) return racerPageURL;
+            if (ENABLE_CHESSTEMPO_TACTICS) return chessTempoTacticsURL;
+            return racerPageURL;
+        }
+
+        const trainingRedirectURL = getTrainingRedirectTarget();
+
         const hostname = window.location.hostname;
         const pathname = window.location.pathname;
 
@@ -208,32 +254,43 @@
         );
         const isChessPuzzlesAllowedPage = ENABLE_CHESS_COM_PUZZLES_MODE && isWithinChessPuzzles;
         
+        const isLichessHost = hostname === 'lichess.org';
+        const isChessTempoHost = hostname === 'chesstempo.com';
+
         // Check if current page is racer-related (allowed when goal not met)
-        const isRacerRelated = hostname === 'lichess.org' && (
+        const isRacerRelated = isLichessHost && (
             pathname === '/racer' ||
             pathname.startsWith('/racer/')
         );
         
         // Check if this is a Lichess page that should be allowed (forums, teams, study, analysis)
-        const isLichessUtilityPage = hostname === 'lichess.org' && (
+        const isLichessUtilityPage = isLichessHost && (
             pathname.startsWith('/forum/') ||
             pathname.startsWith('/team/') ||
             pathname.startsWith('/study/') ||
             pathname.startsWith('/analysis/')
         );
         
-        // Any non-Lichess page OR Lichess pages that aren't racer/utility should be redirected if goal not met
-        const baseOtherPage = hostname !== 'lichess.org' || 
-            (!isRacerRelated && !isLichessUtilityPage);
-        const isOtherPage = !isChessPuzzlesAllowedPage && baseOtherPage;
+        const isAllowedRacerPage = ENABLE_LICHESS_RACER && isRacerRelated;
+        const isAllowedLichessUtilityPage = ENABLE_LICHESS_RACER && isLichessUtilityPage;
+
+        const isChessTempoTacticsPage = isChessTempoHost && (
+            pathname === '/chess-tactics' ||
+            pathname.startsWith('/chess-tactics/')
+        );
+        const isChessTempoAllowedPage = ENABLE_CHESSTEMPO_TACTICS && isChessTempoTacticsPage;
+        
+        // Any non-whitelisted page should be redirected if goal not met
+        const isTrainingOrAllowedPage = isAllowedRacerPage || isChessTempoAllowedPage || isChessPuzzlesAllowedPage;
+        const isOtherPage = !isTrainingOrAllowedPage && !isAllowedLichessUtilityPage;
         
         // Check if this is a racer page (including active races)
-        const isRacerPage = hostname === 'lichess.org' && (
+        const isRacerPage = isLichessHost && (
             pathname.startsWith('/racer/') || 
             pathname === '/racer' ||
             pathname.includes('/racer')
         );
-        const isRacerLobby = hostname === 'lichess.org' && pathname === '/racer';
+        const isRacerLobby = isLichessHost && pathname === '/racer';
 
 
         // Reset keys at midnight (only if it's actually a new day)
@@ -296,8 +353,8 @@
             }
         }
 
-        const initialRacerCount = readGMNumber(keyRacerPuzzles) || 0;
-        syncDailyUnlockFlag(initialRacerCount, dateKey);
+        const initialSolvedCount = readGMNumber(keyRacerPuzzles) || 0;
+        syncDailyUnlockFlag(initialSolvedCount, dateKey);
 
         // If NOT racer-related, hide body until check
         if (isOtherPage && document.body) {
@@ -309,10 +366,14 @@
         console.log(`[RacerTracker] Script started on: ${window.location.href}`);
         console.log(`[RacerTracker] Page classification:`);
         console.log(`[RacerTracker]   - isRacerRelated: ${isRacerRelated}`);
+        console.log(`[RacerTracker]   - isAllowedRacerPage: ${isAllowedRacerPage}`);
         console.log(`[RacerTracker]   - isLichessUtilityPage: ${isLichessUtilityPage}`);
+        console.log(`[RacerTracker]   - isAllowedLichessUtilityPage: ${isAllowedLichessUtilityPage}`);
+        console.log(`[RacerTracker]   - isChessTempoAllowedPage: ${isChessTempoAllowedPage}`);
         console.log(`[RacerTracker]   - isChessPuzzlesAllowedPage: ${isChessPuzzlesAllowedPage}`);
         console.log(`[RacerTracker]   - isOtherPage: ${isOtherPage}`);
         console.log(`[RacerTracker]   - isRacerPage: ${isRacerPage}`);
+        console.log(`[RacerTracker]   - trainingRedirectURL: ${trainingRedirectURL}`);
         console.log(`[RacerTracker]   - hostname: ${hostname}`);
         console.log(`[RacerTracker]   - pathname: ${pathname}`);
 
@@ -346,11 +407,11 @@
             `;
             
             progressWindow.innerHTML = `
-                <div style="font-weight: bold; margin-bottom: 8px; color: white !important; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 5px;">🏁 Прогресс гонок</div>
+                <div style="font-weight: bold; margin-bottom: 8px; color: white !important; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 5px;">📊 Прогресс задач</div>
                 <div id="progress-stats" style="color: white !important;">
                     <div>Решено: <strong id="solved-count">0</strong></div>
                     <div>Осталось: <strong id="remaining-count">${minTasksPerDay}</strong></div>
-                    <div style="margin-top: 5px; font-size: 12px; opacity: 0.8;">Только задачи из гонок</div>
+                    <div style="margin-top: 5px; font-size: 12px; opacity: 0.8;">Учитываются разрешенные сайты</div>
                 </div>
             `;
             
@@ -395,21 +456,19 @@
 
         // Update progress window with current counts
         function updateProgressWindow() {
-            if (!isRacerPage) return;
-            
             const progressWindow = document.getElementById('racer-progress-window');
             if (!progressWindow) {
                 createPersistentProgressWindow();
                 return;
             }
             
-            const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
-            const remaining = Math.max(minTasksPerDay - racerPuzzles, 0);
+            const totalSolved = readGMNumber(keyRacerPuzzles) || 0;
+            const remaining = Math.max(minTasksPerDay - totalSolved, 0);
             
             const solvedEl = progressWindow.querySelector('#solved-count');
             const remainingEl = progressWindow.querySelector('#remaining-count');
             
-            if (solvedEl) solvedEl.textContent = racerPuzzles;
+            if (solvedEl) solvedEl.textContent = totalSolved;
             if (remainingEl) {
                 remainingEl.textContent = remaining;
                 remainingEl.style.color = remaining > 0 ? '#ffeb3b' : '#4caf50';
@@ -424,7 +483,14 @@
                 headerEl.style.borderRadius = '4px';
             }
             
-            console.log(`[RacerTracker] Progress updated: ${racerPuzzles} solved, ${remaining} remaining`);
+            console.log(`[RacerTracker] Progress updated: ${totalSolved} solved, ${remaining} remaining`);
+        }
+
+        let progressWindowHeartbeatStarted = false;
+        function ensureProgressWindowHeartbeat() {
+            if (progressWindowHeartbeatStarted) return;
+            progressWindowHeartbeatStarted = true;
+            setInterval(updateProgressWindow, 2000);
         }
 
         // Check if we're in an actual race or viewing race results (not lobby)
@@ -500,54 +566,53 @@
             }
         }
 
-        // Add race puzzles to daily count
-        function addRacePuzzlesToDaily(racePuzzleCount, raceId = null) {
-            console.log(`[RacerTracker] Adding ${racePuzzleCount} race puzzles to daily count`);
+        function addSolvedPuzzlesToDaily(count, source = 'racer', context = {}) {
+            console.log(`[RacerTracker] Adding ${count} puzzles from '${source}' to daily count`, context);
             
-            const currentRacerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
-            const newRacerPuzzles = currentRacerPuzzles + racePuzzleCount;
+            const currentSolved = readGMNumber(keyRacerPuzzles) || 0;
+            const newSolved = currentSolved + count;
             
-            // Update racer puzzles count
-            writeGMNumber(keyRacerPuzzles, newRacerPuzzles);
+            // Update aggregated puzzles count (shared key for compatibility)
+            writeGMNumber(keyRacerPuzzles, newSolved);
             
-            // Update daily count (only racer puzzles count)
-            writeGMNumber(keyDailyCount, newRacerPuzzles);
+            // Update daily count
+            writeGMNumber(keyDailyCount, newSolved);
             
             // Update cache
-            const newUnlockRemaining = Math.max(minTasksPerDay - newRacerPuzzles, 0);
-            writeGMNumber(keyCachedSolved, newRacerPuzzles);
+            const newUnlockRemaining = Math.max(minTasksPerDay - newSolved, 0);
+            writeGMNumber(keyCachedSolved, newSolved);
             writeGMNumber(keyCachedUnlock, newUnlockRemaining);
             
-            console.log(`[RacerTracker] Updated counts - Daily: ${newRacerPuzzles}, Racer: ${newRacerPuzzles}, Remaining: ${newUnlockRemaining}`);
+            console.log(`[RacerTracker] Updated counts - Daily: ${newSolved}, Remaining: ${newUnlockRemaining}`);
             
-            publishSharedProgress(newRacerPuzzles);
-            syncDailyUnlockFlag(newRacerPuzzles, dateKey);
-            
-            // Race is already marked as processed by extractRacePuzzleResults
-            if (raceId) {
-                console.log(`[RacerTracker] Race ${raceId} processing confirmed`);
-            }
+            publishSharedProgress(newSolved);
+            syncDailyUnlockFlag(newSolved, dateKey);
             
             // Enhanced cross-script communication
             try {
                 const event = new CustomEvent('lichessTrackerUpdate', {
                     detail: {
-                        solved: newRacerPuzzles,
+                        solved: newSolved,
                         courseId: COMPATIBILITY_ID,
                         date: dateKey,
                         key: keyDailyCount,
                         timestamp: Date.now(),
-                        source: 'racer'
+                        source
                     }
                 });
                 window.dispatchEvent(event);
-                console.log(`[RacerTracker] Dispatched custom event with solved=${newRacerPuzzles}`);
+                console.log(`[RacerTracker] Dispatched custom event with solved=${newSolved}`);
             } catch (e) {
                 console.error(`[RacerTracker] Failed to dispatch custom event:`, e);
             }
             
             // Update progress window
             updateProgressWindow();
+        }
+
+        // Add race puzzles to daily count
+        function addRacePuzzlesToDaily(racePuzzleCount, raceId = null) {
+            addSolvedPuzzlesToDaily(racePuzzleCount, 'racer', { raceId });
         }
 
         // Setup race monitoring for active races
@@ -686,30 +751,767 @@
             console.log("[RacerTracker] Race monitoring active");
         }
 
+        // ===============================
+        // === ChessTempo Tracking ===
+        // ===============================
+        let chessTempoPuzzleKey = null;
+        let chessTempoPuzzleCounted = false;
+        let chessTempoKeyInterval = null;
+        let chessTempoSolveObserver = null;
+        let chessTempoTrackingStarted = false;
+        let chessTempoNextInterval = null;
+        let chessTempoNextAttempts = 0;
+        let chessTempoNextKey = null;
+        let chessTempoLastClickTs = 0;
+        let chessTempoAutoStartInterval = null;
+
+        function applyChessTempoTopMenuHiding() {
+            GM_addStyle(`
+                body > header, body > nav, .ct-appbar, .ct-top-nav, .ct-top-menu, .ct-main-toolbar, .ct-nav-bar, .ct-navbar, body > .ct-toolbar, body > .mat-toolbar {
+                    display: none !important;
+                }
+                body {
+                    padding-top: 0 !important;
+                }
+            `);
+        }
+
+        function getChessTempoPuzzleKey() {
+            const dataEl = document.querySelector('[data-problem-id], [data-puzzle-id], [data-problemid]');
+            if (dataEl) {
+                const candidate = dataEl.getAttribute('data-problem-id') || dataEl.getAttribute('data-puzzle-id') || dataEl.getAttribute('data-problemid');
+                if (candidate) return `id:${candidate}`;
+            }
+            const idFromUrl = window.location.pathname + window.location.search + window.location.hash;
+            return `url:${idFromUrl}`;
+        }
+
+        function refreshChessTempoPuzzleKey() {
+            const newKey = getChessTempoPuzzleKey();
+            if (newKey !== chessTempoPuzzleKey) {
+                chessTempoPuzzleKey = newKey;
+                chessTempoPuzzleCounted = false;
+                console.log(`[RacerTracker] ChessTempo puzzle context updated: ${chessTempoPuzzleKey}`);
+            }
+        }
+
+        function checkChessTempoSolved() {
+            refreshChessTempoPuzzleKey();
+            const solvedElement = document.querySelector('.ct-problem-result-output.ct-correct, .ct-problem-result.ct-correct, .ct-problem-result .ct-correct, problem-result .ct-correct');
+            if (solvedElement && !chessTempoPuzzleCounted) {
+                chessTempoPuzzleCounted = true;
+                addSolvedPuzzlesToDaily(1, 'chesstempo', { puzzleKey: chessTempoPuzzleKey });
+                console.log('[RacerTracker] ChessTempo puzzle marked as solved');
+                // Try to advance in-place via Next button flow
+                startChessTempoNextLoop();
+            } else if (!solvedElement && chessTempoPuzzleCounted) {
+                // New puzzle likely loaded, allow next detection
+                chessTempoPuzzleCounted = false;
+            }
+        }
+
+        function setupChessTempoTracking() {
+            if (chessTempoTrackingStarted) return;
+            chessTempoTrackingStarted = true;
+
+            refreshChessTempoPuzzleKey();
+            checkChessTempoSolved();
+
+            chessTempoSolveObserver = new MutationObserver(() => checkChessTempoSolved());
+            chessTempoSolveObserver.observe(document.body, { childList: true, subtree: true });
+            chessTempoKeyInterval = setInterval(refreshChessTempoPuzzleKey, 1000);
+            ensureChessTempoAutoStartLoop();
+
+            console.log('[RacerTracker] ChessTempo tracking active');
+        }
+
+        function clickWithEvents(el) {
+            if (!el) return false;
+            try {
+                const rect = el.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const pointerOpts = { bubbles: true, cancelable: true, composed: true, view: window, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse', buttons: 1 };
+                const mouseOpts = { bubbles: true, cancelable: true, composed: true, view: window, clientX: cx, clientY: cy, button: 0, buttons: 1 };
+                try {
+                    if (el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+                } catch (_) {}
+                try {
+                    const touchObj = new Touch({
+                        identifier: Date.now(),
+                        target: el,
+                        clientX: cx,
+                        clientY: cy,
+                        radiusX: 2,
+                        radiusY: 2,
+                        rotationAngle: 0,
+                        force: 0.5
+                    });
+                    const touchEvent = (type) => el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, composed: true, touches: [touchObj], targetTouches: [touchObj], changedTouches: [touchObj] }));
+                    touchEvent('touchstart');
+                    touchEvent('touchend');
+                } catch (_) {}
+                if (el.focus) {
+                    try { el.focus({ preventScroll: true }); } catch (_) { el.focus(); }
+                }
+                ['pointerdown', 'mousedown'].forEach(type => {
+                    el.dispatchEvent(new PointerEvent(type, pointerOpts));
+                    el.dispatchEvent(new MouseEvent(type, mouseOpts));
+                });
+                ['pointerup', 'mouseup', 'click'].forEach(type => {
+                    el.dispatchEvent(new PointerEvent(type, pointerOpts));
+                    el.dispatchEvent(new MouseEvent(type, mouseOpts));
+                });
+                el.dispatchEvent(new MouseEvent('dblclick', mouseOpts));
+                ['keydown', 'keypress', 'keyup'].forEach(type => {
+                    el.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' }));
+                    el.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+                });
+                el.dispatchEvent(new Event('tap', { bubbles: true, cancelable: true }));
+                el.dispatchEvent(new Event('action', { bubbles: true, cancelable: true }));
+                if (typeof el.click === 'function') el.click();
+                return true;
+            } catch (e) {
+                try {
+                    el.click();
+                    return true;
+                } catch (err) {
+                    console.log('[RacerTracker] Failed to click element', err);
+                    return false;
+                }
+            }
+        }
+
+        function forceEnableElement(el) {
+            if (!el) return;
+            try { el.removeAttribute('disabled'); } catch (_) {}
+            try { el.removeAttribute('aria-disabled'); } catch (_) {}
+            try { el.classList && el.classList.remove('ct-hidden'); } catch (_) {}
+            try { el.style && (el.style.pointerEvents = 'auto'); } catch (_) {}
+            try { el.style && (el.style.visibility = ''); } catch (_) {}
+            try { el.style && (el.style.display = ''); } catch (_) {}
+        }
+
+        // Minimal click helper for CT "Next" buttons to avoid double-actions like opening dropdowns
+        function clickSimple(el) {
+            if (!el) return false;
+            try {
+                forceEnableElement(el);
+                try { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); } catch (_) {}
+                try { el.focus({ preventScroll: true }); } catch (_) {}
+                el.click();
+                return true;
+            } catch (_) {}
+            try {
+                const rect = el.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                try { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); } catch (_) {}
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+                return true;
+            } catch (_) {}
+            return false;
+        }
+
+        function clickAtCenter(el) {
+            if (!el) return false;
+            try {
+                const rect = el.getBoundingClientRect();
+                if (!rect || !rect.width || !rect.height) return false;
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const target = document.elementFromPoint(cx, cy) || el;
+                try { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); } catch (_) {}
+                try { el.focus({ preventScroll: true }); } catch (_) {}
+                return clickWithEvents(target);
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function isVisibleButton(el) {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            const opacity = parseFloat(style.opacity || '1');
+            if (style.display === 'none' || style.visibility === 'hidden' || opacity < 0.05) return false;
+            if (el.classList && el.classList.contains('ct-hidden')) return false;
+            const hasBox = el.offsetParent !== null || style.position === 'fixed' || style.display === 'contents';
+            if (!hasBox) return false;
+            if ((style.pointerEvents || '').toLowerCase() === 'none') return false;
+            return true;
+        }
+
+        function collectShadowCandidates(root = document, acc = []) {
+            if (!root) return acc;
+            const nodes = root.querySelectorAll('*');
+            nodes.forEach(node => {
+                acc.push(node);
+                if (node.shadowRoot) collectShadowCandidates(node.shadowRoot, acc);
+            });
+            return acc;
+        }
+
+        function textLooksLikeNext(rawText) {
+            if (!rawText) return false;
+            const text = rawText.trim().toLowerCase().replace(/\s+/g, ' ');
+            if (!text) return false;
+            const patterns = [
+                /следующ/,         // Russian: следующий/следующая
+                /\bдалее\b/,       // Russian: далее
+                /\bnext\b/,        // English: next
+                /\bnext (problem|puzzle|task|exercise)\b/,
+                /\bcontinue\b/,    // fallback wording some UIs use
+            ];
+            return patterns.some(re => re.test(text));
+        }
+
+        function attrsLookLikeNext(node) {
+            if (!node || !node.getAttribute) return false;
+            const attrNames = ['data-cy', 'data-qa', 'aria-label', 'title', 'data-testid', 'data-id', 'data-action'];
+            for (const name of attrNames) {
+                const val = node.getAttribute(name);
+                if (val && textLooksLikeNext(val)) return true;
+            }
+            return false;
+        }
+
+        function isChessTempoModalOpen() {
+            return !!document.querySelector('.mdc-dialog--open, .cdk-overlay-container, .ct-dialog, .mat-dialog-container');
+        }
+
+        function textLooksLikeStart(rawText) {
+            if (!rawText) return false;
+            const text = rawText.trim().toLowerCase().replace(/\s+/g, ' ');
+            if (!text) return false;
+            const patterns = [
+                /начать/,
+                /старт/,
+                /продолж/,
+                /трениров/,
+                /решать/,
+                /решение/,
+                /реши зада/,
+                /новую зада/,
+                /\bstart\b/,
+                /\bbegin\b/,
+                /\bresume\b/,
+                /\bcontinue\b/,
+                /\bplay\b/,
+                /\bsolve\b/,
+                /\btrain\b/,
+                /\bgo\b/
+            ];
+            return patterns.some(re => re.test(text));
+        }
+
+        function attrsLookLikeStart(node) {
+            if (!node || !node.getAttribute) return false;
+            const attrNames = ['aria-label', 'title', 'data-qa', 'data-cy', 'data-testid'];
+            return attrNames.some(name => textLooksLikeStart(node.getAttribute(name)));
+        }
+
+        function findStartButtons(root = document) {
+            const nodes = collectShadowCandidates(root);
+            const matches = [];
+            nodes.forEach(node => {
+                if (!node || !node.tagName) return;
+                const tag = node.tagName.toLowerCase();
+                const role = node.getAttribute && node.getAttribute('role');
+                const isButtonLike = tag === 'button' || tag === 'ct-button' || tag === 'a' || role === 'button';
+                if (!isButtonLike) return;
+                const textMatch = textLooksLikeStart(node.textContent || '');
+                const attrMatch = attrsLookLikeStart(node);
+                if ((textMatch || attrMatch) && isVisibleButton(node)) {
+                    matches.push(node);
+                }
+            });
+            return matches;
+        }
+
+        function clickChessTempoStartButton(reason = 'auto-start') {
+            const containers = [];
+            const modal = document.querySelector('.mdc-dialog--open, .ct-dialog, .mat-dialog-container, .cdk-overlay-container .ct-dialog');
+            if (modal) containers.push(modal);
+            containers.push(document);
+
+            for (const container of containers) {
+                const candidates = findStartButtons(container);
+                if (!candidates.length) continue;
+
+                if (DEBUG_CHESSTEMPO_NEXT_LOGS) {
+                    nextLog(`Start/resume candidates (${reason}):`, candidates.map(descEl));
+                }
+
+                for (const target of candidates) {
+                    if (!target) continue;
+                    let clicked = false;
+                    if (!clicked) clicked = clickSimple(target);
+                    if (!clicked) clicked = clickAtCenter(target);
+                    if (!clicked) clicked = clickWithEvents(target);
+                    if (clicked) {
+                        nextLog(`Start/resume click (${reason}) on`, descEl(target));
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function findLabelBasedCandidates(root = document) {
+            const nodes = collectShadowCandidates(root);
+            const matches = [];
+            nodes.forEach(node => {
+                const text = (node.textContent || '').trim().toLowerCase();
+                if (!text) return;
+                if (textLooksLikeNext(text)) {
+                    matches.push(node);
+                }
+            });
+            return matches;
+        }
+
+        function findTextNextButtons(root = document) {
+            const nodes = collectShadowCandidates(root);
+            return nodes.filter(node => {
+                if (!node.tagName) return false;
+                const tag = node.tagName.toLowerCase();
+                if (!['button', 'ct-button', 'a', 'div', 'span'].includes(tag)) return false;
+                const text = (node.textContent || '').toLowerCase();
+                if (!text) return false;
+                return textLooksLikeNext(text);
+            });
+        }
+
+        function getClickableAncestors(node) {
+            const chain = [];
+            let current = node;
+            while (current && current !== document && chain.length < 10) {
+                chain.push(current);
+                if (current.shadowRoot && current.shadowRoot.host) chain.push(current.shadowRoot.host);
+                current = current.parentNode || current.host;
+            }
+            return chain;
+        }
+
+        function hasNextButtonAncestor(node) {
+            let current = node;
+            for (let depth = 0; depth < 15 && current; depth++) {
+                if (current.classList && current.classList.contains('ct-tactics-next-button')) return true;
+                current = current.parentNode || current.host;
+            }
+            return false;
+        }
+
+        function getActionsContainer() {
+            return document.querySelector('.ct-problems-actions-buttons') || document.body || document;
+        }
+
+        function isVisibleCandidate(node) {
+            if (!node) return false;
+            const style = window.getComputedStyle(node);
+            if (!style) return false;
+            const visible = style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0.05;
+            const hiddenClass = node.classList && node.classList.contains('ct-hidden');
+            return visible && !hiddenClass;
+        }
+
+        function findDeepNextButtons(container) {
+            const result = [];
+            if (!container) return result;
+            const nodes = collectShadowCandidates(container);
+            nodes.forEach(node => {
+                if (!node.tagName) return;
+                const tag = node.tagName.toLowerCase();
+                if (tag !== 'button' && tag !== 'ct-button') return;
+                const text = (node.textContent || '').trim().toLowerCase();
+                if (!text.includes('следующий')) return;
+                if (!isVisibleCandidate(node)) return;
+                result.push(node);
+            });
+            return result;
+        }
+
+        function getActionableNextTargets() {
+            const container = getActionsContainer();
+            if (!container) return [];
+            // prioritize explicit IDs first
+            const explicitNodes = [
+                container.querySelector('#ct-69'),
+                container.querySelector('#ct-68')
+            ].filter(Boolean);
+
+            const nodes = Array.from(container.querySelectorAll(`
+                ct-button.ct-tactics-next-button:not(.ct-hidden),
+                ct-button.ct-tactics-next-button:not(.ct-hidden) button,
+                .ct-tactics-next-button:not(.ct-hidden),
+                .ct-tactics-next-button:not(.ct-hidden) button
+            `.replace(/\s+/g, ' ')));
+
+            // also traverse shadow DOM for buttons marked as next
+            const shadowCandidates = collectShadowCandidates(container).filter(node => {
+                if (!node.tagName) return false;
+                const tag = node.tagName.toLowerCase();
+                const cls = node.classList ? Array.from(node.classList) : [];
+                const id = node.id || '';
+                if (cls.some(c => c.includes('ct-tactics-next-button'))) return true;
+                if (id === 'ct-68' || id === 'ct-69') return true;
+                const text = (node.textContent || '').toLowerCase();
+                return text && textLooksLikeNext(text);
+            });
+
+            const targets = [];
+            const considerNode = (node) => {
+                if (!node) return;
+                const style = window.getComputedStyle(node);
+                const visible = style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0.05;
+                if (!visible) return;
+                const innerButton = node.tagName.toLowerCase() === 'button' ? node : (node.querySelector && node.querySelector('button')) || null;
+                const outer = node.tagName.toLowerCase() === 'ct-button' ? node : null;
+                // Click outer custom element first, then inner <button>
+                [outer || null, innerButton].forEach(candidate => {
+                    if (!candidate) return;
+                    forceEnableElement(candidate);
+                    targets.push(candidate);
+                });
+            };
+
+            explicitNodes.forEach(considerNode);
+            nodes.forEach(considerNode);
+            shadowCandidates.forEach(considerNode);
+
+            // As a fallback, try buttons that literally have label "Следующий"
+            if (!targets.length) {
+                findDeepNextButtons(container).forEach(btn => targets.push(btn));
+            }
+
+            if (DEBUG_CHESSTEMPO_NEXT_LOGS) {
+                nextLog('CT next buttons found:', {
+                    rawCandidates: nodes.length + explicitNodes.length,
+                    filtered: targets.map(descEl)
+                });
+            }
+
+            // Prefer the first visible candidate only to avoid hitting hidden duplicates
+            if (targets.length > 1) {
+                return [targets[0]];
+            }
+
+            return targets;
+        }
+
+        function dispatchKeyboardNext() {
+            const keys = ['ArrowRight', 'Enter', ' '];
+            keys.forEach(key => {
+                try {
+                    window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, code: key }));
+                    window.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key, code: key }));
+                } catch (_) {}
+                try {
+                    document.body && document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, code: key }));
+                    document.body && document.body.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key, code: key }));
+                } catch (_) {}
+            });
+        }
+
+        function getChessTempoNextUrl() {
+            const container = getActionsContainer();
+            const btn = container && (
+                container.querySelector('.ct-problem-action-button.ct-tactics-next-button') ||
+                container.querySelector('button[data-cy*="next"]') ||
+                container.querySelector('button[data-qa*="next"]') ||
+                container.querySelector('button[aria-label*="Next"]') ||
+                container.querySelector('button[aria-label*="След"]') ||
+                getActionableNextTargets()[0]
+            );
+            if (!btn) return null;
+
+            // Direct links inside the button (if any)
+            const linkEl = btn.querySelector('a[href]');
+            if (linkEl && linkEl.href) return linkEl.href;
+
+            // Attributes sometimes used by routers/frameworks
+            const attrNames = ['href', 'data-href', 'routerlink', 'routerLink', 'ng-reflect-router-link', 'ng-reflect-href'];
+            for (const name of attrNames) {
+                const val = btn.getAttribute && btn.getAttribute(name);
+                if (val) {
+                    try {
+                        return new URL(val, window.location.href).href;
+                    } catch (_) {
+                        // ignore malformed
+                    }
+                }
+            }
+            return null;
+        }
+
+        let chessTempoNavigationForced = false;
+        function forceNavigateToNextPuzzle(reason = 'fallback') {
+            if (chessTempoNavigationForced) return;
+            chessTempoNavigationForced = true;
+            try {
+                const target = `${chessTempoTacticsURL}?auto=1&reason=${encodeURIComponent(reason)}&ts=${Date.now()}`;
+                console.warn(`[RacerTracker] ChessTempo force navigation: ${target}`);
+                window.location.href = target;
+            } catch (e) {
+                console.log('[RacerTracker] Failed to force navigation', e);
+            }
+        }
+
+        function navigateToChessTempoLobby(reason = 'solved') {
+            if (chessTempoNavigationForced) return;
+            chessTempoNavigationForced = true;
+            const target = `${chessTempoTacticsURL}?auto=1&reason=${encodeURIComponent(reason)}&ts=${Date.now()}`;
+            nextLog('Navigating to lobby', target);
+            try {
+                window.location.href = target;
+            } catch (e) {
+                forceNavigateToNextPuzzle(`${reason}-fallback`);
+            }
+        }
+
+        function clickChessTempoNextButton() {
+            if (isChessTempoModalOpen()) {
+                if (clickChessTempoStartButton('modal-open')) {
+                    return true;
+                }
+                nextLog('Modal open - skip auto-next');
+                return false;
+            }
+
+            const container = getActionsContainer();
+            const selectors = [
+                '.ct-problem-action-button.ct-tactics-next-button:not(.ct-hidden) button',
+                '.ct-problem-action-button.ct-tactics-next-button:not(.ct-hidden)',
+                'button.ct-tactics-next-button:not(.ct-hidden)'
+            ];
+
+            const candidates = new Set();
+            getActionableNextTargets().forEach(n => candidates.add(n));
+            selectors.forEach(sel => {
+                Array.from(container.querySelectorAll(sel)).forEach(n => candidates.add(n));
+            });
+            // include shadow DOM traversal results explicitly
+            collectShadowCandidates(container).forEach(n => {
+                if (!n || !n.tagName) return;
+                const tag = n.tagName.toLowerCase();
+                const cls = n.classList ? Array.from(n.classList) : [];
+                if (cls.some(c => c.includes('ct-tactics-next-button'))) candidates.add(n);
+                if (tag === 'button' && textLooksLikeNext(n.textContent || '')) candidates.add(n);
+                if (n.id === 'ct-68' || n.id === 'ct-69') candidates.add(n);
+            });
+
+            if (!candidates.size) {
+                const startClicked = clickChessTempoStartButton('no-next-button');
+                if (startClicked) return true;
+            }
+
+            if (DEBUG_CHESSTEMPO_NEXT_LOGS) {
+                nextLog('Candidate set:', Array.from(candidates).map(descEl));
+            }
+
+            let clickedAny = false;
+            const clickHostAndInner = (node) => {
+                if (!node) return false;
+                const inner = node.querySelector ? node.querySelector('button') : null;
+                let local = false;
+                // Click host first
+                [node, inner].forEach(target => {
+                    if (!target) return;
+                    if (clickWithEvents(target)) { local = true; return; }
+                    if (clickSimple(target)) { local = true; return; }
+                    if (clickAtCenter(target)) { local = true; return; }
+                });
+                if (!local) {
+                    dispatchKeyboardNext();
+                    local = true;
+                }
+                return local;
+            };
+
+            const tryAllClickVariants = (target) => {
+                let localClicked = false;
+                // Fire the richest event set first (covers touch/mouse)
+                if (!localClicked) localClicked = clickWithEvents(target);
+                // Then a simple click
+                if (!localClicked) localClicked = clickSimple(target);
+                // Then a center-based click
+                if (!localClicked) localClicked = clickAtCenter(target);
+                // Finally keyboard-based next
+                if (!localClicked) {
+                    dispatchKeyboardNext();
+                    localClicked = true; // we did dispatch something meaningful
+                }
+                return localClicked;
+            };
+
+            for (const target of candidates) {
+                if (!target) continue;
+                const clicked = clickHostAndInner(target) || tryAllClickVariants(target);
+                if (clicked) {
+                    clickedAny = true;
+                    nextLog('Click dispatched on', descEl(target));
+                }
+            }
+
+            if (clickedAny) return true;
+            if (clickChessTempoStartButton('fallback')) return true;
+
+            nextWarn('No next button clicked');
+            return false;
+        }
+
+        function waitAndClickChessTempoNext(maxWaitMs = 6000) {
+            const container = getActionsContainer();
+            if (!container) return;
+
+            let done = false;
+            const stopAll = () => {
+                done = true;
+                if (observer) observer.disconnect();
+                if (timer) clearInterval(timer);
+                if (timeout) clearTimeout(timeout);
+            };
+
+            const tryClick = () => {
+                if (done) return;
+                if (clickChessTempoNextButton()) {
+                    stopAll();
+                }
+            };
+
+            const observer = new MutationObserver(() => tryClick());
+            observer.observe(container, { childList: true, subtree: true, attributes: true });
+
+            const timer = setInterval(tryClick, 300);
+            const timeout = setTimeout(stopAll, maxWaitMs);
+
+            tryClick();
+        }
+
+        function stopChessTempoNextLoop() {
+            if (chessTempoNextInterval) {
+                clearInterval(chessTempoNextInterval);
+                chessTempoNextInterval = null;
+            }
+            chessTempoNextAttempts = 0;
+            chessTempoNextKey = null;
+        }
+
+        function startChessTempoNextLoop(delayMs = 800) {
+            stopChessTempoNextLoop();
+            chessTempoNextKey = chessTempoPuzzleKey;
+
+            const hasAdvancedToNextPuzzle = () => chessTempoPuzzleKey !== chessTempoNextKey;
+
+            setTimeout(() => {
+                if (hasAdvancedToNextPuzzle()) {
+                    stopChessTempoNextLoop();
+                    return;
+                }
+
+                chessTempoNextAttempts = 0;
+                const maxAttempts = 10;
+
+                chessTempoNextInterval = setInterval(() => {
+                    chessTempoNextAttempts++;
+
+                    // refresh key to detect navigation
+                    refreshChessTempoPuzzleKey();
+
+                    if (hasAdvancedToNextPuzzle()) {
+                        stopChessTempoNextLoop();
+                        return;
+                    }
+
+                    if (Date.now() - chessTempoLastClickTs < 400) {
+                        return;
+                    }
+
+                    const clicked = clickChessTempoNextButton();
+                    if (clicked) {
+                        stopChessTempoNextLoop();
+                        chessTempoLastClickTs = Date.now();
+                        // If click didn't change puzzle shortly, force navigation
+                        setTimeout(() => {
+                            refreshChessTempoPuzzleKey();
+                            if (!hasAdvancedToNextPuzzle()) {
+                                const directUrl = getChessTempoNextUrl();
+                                if (directUrl && !chessTempoNavigationForced) {
+                                    nextLog('Post-click direct href navigation to', directUrl);
+                                    try {
+                                        window.location.href = directUrl;
+                                        chessTempoNavigationForced = true;
+                                    } catch (e) {
+                                        forceNavigateToNextPuzzle('post-click-href');
+                                    }
+                                } else {
+                                    forceNavigateToNextPuzzle('post-click');
+                                }
+                            }
+                        }, 600);
+                        if (chessTempoNextAttempts === 1 || chessTempoNextAttempts % 3 === 0) {
+                            console.log(`[RacerTracker] ChessTempo next attempt #${chessTempoNextAttempts} dispatched for ${chessTempoNextKey}`);
+                        }
+                        return;
+                    }
+
+                    // Try direct href navigation after a few failed attempts
+                    if (chessTempoNextAttempts >= 3) {
+                        const directUrl = getChessTempoNextUrl();
+                        if (directUrl) {
+                            nextLog('Direct href navigation to', directUrl);
+                            stopChessTempoNextLoop();
+                            try {
+                                window.location.href = directUrl;
+                                chessTempoNavigationForced = true;
+                            } catch (e) {
+                                forceNavigateToNextPuzzle('href-fallback');
+                            }
+                            return;
+                        }
+                    }
+
+                    if (chessTempoNextAttempts >= maxAttempts) {
+                        console.warn('[RacerTracker] ChessTempo next attempts exhausted without navigation; forcing lobby navigation');
+                        forceNavigateToNextPuzzle('exhausted');
+                        stopChessTempoNextLoop();
+                    }
+                }, 350);
+            }, delayMs);
+        }
+
+        function ensureChessTempoAutoStartLoop() {
+            if (chessTempoAutoStartInterval) return;
+            chessTempoAutoStartInterval = setInterval(() => {
+                const hasProblemId = !!document.querySelector('[data-problem-id], [data-puzzle-id], [data-problemid]');
+                const hasBoard = !!document.querySelector('.ct-problem-board, .ct-board, chess-board, .ct-problem');
+                if (hasProblemId || hasBoard) return;
+                clickChessTempoStartButton('auto-start-loop');
+            }, 1200);
+        }
+
         // Main logic
         
-        // For non-racer pages: check puzzle count and redirect if needed
+        // For non-whitelisted pages: check puzzle count and redirect if needed
         if (isOtherPage) {
-            console.log("[RacerTracker] Processing non-racer page");
+            console.log("[RacerTracker] Processing non-training page");
             
-            // Proceed with racer progress check without training mode considerations
-            
-            const racerPuzzles = readGMNumber(keyRacerPuzzles) || 0;
-            const unlockRemaining = Math.max(minTasksPerDay - racerPuzzles, 0);
-            syncDailyUnlockFlag(racerPuzzles, dateKey);
+            const totalPuzzles = readGMNumber(keyRacerPuzzles) || 0;
+            const unlockRemaining = Math.max(minTasksPerDay - totalPuzzles, 0);
+            syncDailyUnlockFlag(totalPuzzles, dateKey);
             const unlockGranted = isDailyUnlockGrantedForDate(dateKey);
             
             // Update GM storage
-            writeGMNumber(keyDailyCount, racerPuzzles);
-            writeGMNumber(keyCachedSolved, racerPuzzles);
+            writeGMNumber(keyDailyCount, totalPuzzles);
+            writeGMNumber(keyCachedSolved, totalPuzzles);
             writeGMNumber(keyCachedUnlock, unlockRemaining);
-            publishSharedProgress(racerPuzzles);
+            publishSharedProgress(totalPuzzles);
             
-            console.log(`[RacerTracker] Current progress - Puzzles solved: ${racerPuzzles}, Remaining: ${unlockRemaining}`);
+            console.log(`[RacerTracker] Current progress - Puzzles solved: ${totalPuzzles}, Remaining: ${unlockRemaining}`);
             
             if (!unlockGranted) {
-                console.log(`[RacerTracker] Unlock flag inactive (remaining ${unlockRemaining}) - Redirecting to Lichess racer`);
-                window.location.replace(racerPageURL);
+                console.log(`[RacerTracker] Unlock flag inactive (remaining ${unlockRemaining}) - Redirecting to training page`);
+                window.location.replace(trainingRedirectURL);
             } else {
                 if (unlockRemaining > 0) {
                     console.warn(`[RacerTracker] Unlock flag active but ${unlockRemaining} puzzles still recorded - allowing page but please verify counts`);
@@ -721,7 +1523,7 @@
         }
         
         // For racer-related pages: allow access and setup features
-        if (isRacerRelated) {
+        if (isAllowedRacerPage) {
             console.log("[RacerTracker] On racer-related page, allowing access");
             
             // Always show racer-related pages
@@ -734,14 +1536,13 @@
                 document.addEventListener('DOMContentLoaded', () => {
                     createPersistentProgressWindow();
                     updateProgressWindow();
+                    ensureProgressWindowHeartbeat();
                 });
             } else {
                 createPersistentProgressWindow();
                 updateProgressWindow();
+                ensureProgressWindowHeartbeat();
             }
-            
-            // Update progress window periodically
-            setInterval(updateProgressWindow, 2000);
             
             // Setup race monitoring if on specific race page
             if (isRacerPage && !isRacerLobby) {
@@ -752,14 +1553,40 @@
                 }, 1000);
             }
         }
-        
+
+        if (isChessTempoAllowedPage) {
+            console.log('[RacerTracker] On ChessTempo tactics page, allowing access');
+            if (document.body) document.body.style.visibility = '';
+
+            applyChessTempoTopMenuHiding();
+
+            const totalPuzzles = readGMNumber(keyRacerPuzzles) || 0;
+            const unlockRemaining = Math.max(minTasksPerDay - totalPuzzles, 0);
+            writeGMNumber(keyDailyCount, totalPuzzles);
+            writeGMNumber(keyCachedSolved, totalPuzzles);
+            writeGMNumber(keyCachedUnlock, unlockRemaining);
+            publishSharedProgress(totalPuzzles);
+
+            const ensureUI = () => {
+                createPersistentProgressWindow();
+                updateProgressWindow();
+                ensureProgressWindowHeartbeat();
+                setupChessTempoTracking();
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', ensureUI);
+            } else {
+                ensureUI();
+            }
+        }
+
         // For Lichess utility pages: allow access and update GM storage
-        if (isLichessUtilityPage) {
+        if (isAllowedLichessUtilityPage) {
             console.log("[RacerTracker] On Lichess utility page, allowing access");
             const unlockGranted = isDailyUnlockGrantedForDate(dateKey);
             if (!unlockGranted) {
                 console.log('[RacerTracker] Utility page blocked - unlock flag inactive');
-                window.location.replace(racerPageURL);
+                window.location.replace(trainingRedirectURL);
                 return;
             }
 

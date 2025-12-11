@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.20
+// @version      1.21
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -33,7 +33,7 @@
             dayOfWeek: 2,
             unlocked: [
                 { from: '09:00', to: '13:00' },
-                { from: '16:00', to: '21:00' }
+                { from: '16:00', to: '20:00' }
             ]
         },
         {
@@ -49,7 +49,7 @@
             dayOfWeek: 4,
             unlocked: [
                 { from: '09:00', to: '13:00' },
-                { from: '16:00', to: '21:00' }
+                { from: '16:00', to: '20:00' }
             ]
         },
         {
@@ -66,7 +66,7 @@
             dayOfWeek: 6,
             unlocked: [
                 { from: '08:00', to: '13:00' },
-                { from: '18:00', to: '21:00' }
+                { from: '18:00', to: '20:00' }
             ]
         },
         {
@@ -74,7 +74,7 @@
             dayOfWeek: 0,
             unlocked: [
                 { from: '08:00', to: '13:00' },
-                { from: '18:00', to: '21:00' }
+                { from: '18:00', to: '20:00' }
             ]
         }
     ]);
