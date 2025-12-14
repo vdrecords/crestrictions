@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         06_url_blocker - Блокировщик URL и список доменов
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Блокировка нежелательных сайтов и разрешение только определённых доменов с режимом турнира
 // @match        *://*/*
 // @grant        none
@@ -78,6 +78,7 @@
             'worldchess.com',
             'chess.com',
             'lichess.org',
+            'chesstempo.com',
             'deepl.com'
         ];
 
