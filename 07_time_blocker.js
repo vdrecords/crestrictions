@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.22
+// @version      1.24
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -226,6 +226,13 @@
         return timeToMinutes(hours, mins);
     }
 
+    function minutesToTimeString(totalMinutes) {
+        const normalized = Math.max(0, totalMinutes);
+        const hours = Math.floor(normalized / 60) % 24;
+        const mins = normalized % 60;
+        return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    }
+
     function createWeekSchedule(rawSchedule) {
         const schedule = new Array(7).fill(null);
         rawSchedule.forEach((dayConfig, orderIndex) => {
@@ -336,6 +343,73 @@
         return `${year}-${month}-${day}`;
     }
 
+    function getUnlockedWindowsForDate(date) {
+        const daySchedule = getEffectiveDaySchedule(date.getDay(), date);
+        const windows = daySchedule
+            ? daySchedule.unlocked.map((period) => ({
+                startMinutes: period.startMinutes,
+                endMinutes: period.endMinutes
+            }))
+            : [];
+
+        if (getDateKey(date) === SPECIAL_UNLOCK_DATE) {
+            windows.push({
+                startMinutes: 0,
+                endMinutes: SPECIAL_UNLOCK_END_MINUTES
+            });
+        }
+
+        return windows.sort((a, b) => a.startMinutes - b.startMinutes);
+    }
+
+    function findNextUnlockDateTime(now) {
+        const currentMinutes = timeToMinutes(now.getHours(), now.getMinutes());
+        const searchDays = 7; // looking a week ahead is enough for weekly schedule
+
+        for (let offset = 0; offset <= searchDays; offset += 1) {
+            const date = new Date(now);
+            date.setHours(0, 0, 0, 0);
+            date.setDate(date.getDate() + offset);
+
+            const windows = getUnlockedWindowsForDate(date);
+            if (!windows.length) {
+                continue;
+            }
+
+            for (let i = 0; i < windows.length; i += 1) {
+                const startMinutes = windows[i].startMinutes;
+                if (offset === 0 && startMinutes <= currentMinutes) {
+                    continue;
+                }
+
+                const candidate = new Date(date);
+                candidate.setHours(0, 0, 0, 0);
+                candidate.setMinutes(startMinutes);
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    function formatNextUnlockMessage(now) {
+        const nextUnlock = findNextUnlockDateTime(now);
+        if (!nextUnlock) {
+            return 'Следующая разблокировка не запланирована';
+        }
+
+        const timeLabel = minutesToTimeString(
+            timeToMinutes(nextUnlock.getHours(), nextUnlock.getMinutes())
+        );
+        if (getDateKey(nextUnlock) === getDateKey(now)) {
+            return `Разблокируется в ${timeLabel}`;
+        }
+
+        const day = String(nextUnlock.getDate()).padStart(2, '0');
+        const month = String(nextUnlock.getMonth() + 1).padStart(2, '0');
+        return `Разблокируется ${day}.${month} в ${timeLabel}`;
+    }
+
     function isSpecialUnlockActive(date, hour, minute) {
         if (!(date instanceof Date)) return false;
         const dateKey = getDateKey(date);
@@ -406,7 +480,7 @@
         // Check if we're in blocking interval
         if (shouldBlock) {
             console.log(`[TimeBlocker] BLOCKING PAGE - Time is up`);
-            setBlockedState('Time is up');
+            setBlockedState('Time is up', formatNextUnlockMessage(now));
             removeWarningTimer();
             return;
         }
@@ -441,7 +515,7 @@
     const initialEffectiveShouldBlock = initialSpecialUnlockActive ? false : initialBaseShouldBlock;
 
     if (initialEffectiveShouldBlock) {
-        setBlockedState('Time is up');
+        setBlockedState('Time is up', formatNextUnlockMessage(debugNow));
     } else {
         setAllowedState();
     }
