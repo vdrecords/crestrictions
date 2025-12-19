@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         09_2_lichess_racer_tracker - Раcer-only трекер Lichess
 // @namespace    http://tampermonkey.net/
-// @version      1.28
+// @version      1.29
 // @description  Трекер задач Lichess Racer + ChessTempo, редиректы и мониторинг прогресса по разрешенным источникам
 // @include      *
 // @grant        GM_addStyle
@@ -18,8 +18,8 @@
     // ==============================
     // === Core Settings ===
     const SCRIPT_VERSION = '1.27';
-    const SPECIAL_TARGET_DATE = '2025-11-18';
-    const SPECIAL_TARGET_VALUE = 3;
+    const SPECIAL_TARGET_DATE = '2025-12-19';
+    const SPECIAL_TARGET_VALUE = 200;
 
     // Chess.com puzzles access: allow puzzles pages when enabled
     const ENABLE_CHESS_COM_PUZZLES_MODE = true; // Toggle to allow Chess.com puzzles pages
@@ -37,11 +37,18 @@
     // ==============================
     // Explicit daily targets (Mon-Sun)
     const WEEKLY_TASK_TARGETS = [
-        20,  // Monday
-        400,  // Tuesday
-        20,  // Wednesday
-        400,  // Thursday
-        200,  // Friday
+    //    20,  // Monday
+    //    400,  // Tuesday
+    //    20,  // Wednesday
+    //    400,  // Thursday
+    //    200,  // Friday
+    //    1000, // Saturday
+    //    1000  // Sunday
+        1000,  // Monday
+        1000,  // Tuesday
+        1000,  // Wednesday
+        1000,  // Thursday
+        1000,  // Friday
         1000, // Saturday
         1000  // Sunday
     ];

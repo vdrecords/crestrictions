@@ -225,6 +225,13 @@
         return timeToMinutes(hours, mins);
     }
 
+    function minutesToTimeString(totalMinutes) {
+        const safeMinutes = Math.max(0, totalMinutes);
+        const hours = Math.floor(safeMinutes / 60);
+        const mins = safeMinutes % 60;
+        return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    }
+
     function createWeekSchedule(rawSchedule) {
         const schedule = new Array(7).fill(null);
         rawSchedule.forEach((dayConfig, orderIndex) => {
@@ -335,6 +342,111 @@
         return `${year}-${month}-${day}`;
     }
 
+    function parseDateKey(dateKey) {
+        if (typeof dateKey !== 'string') {
+            return null;
+        }
+        const [yearPart, monthPart, dayPart] = dateKey.split('-');
+        const year = parseInt(yearPart, 10);
+        const month = parseInt(monthPart, 10);
+        const day = parseInt(dayPart, 10);
+        if ([year, month, day].some((value) => Number.isNaN(value))) {
+            return null;
+        }
+        return new Date(year, month - 1, day, 0, 0, 0, 0);
+    }
+
+    function isSameDate(left, right) {
+        if (!(left instanceof Date) || !(right instanceof Date)) {
+            return false;
+        }
+        return getDateKey(left) === getDateKey(right);
+    }
+
+    function getUnlockedWindowsForDate(date) {
+        const daySchedule = getEffectiveDaySchedule(date.getDay(), date);
+        const windows = daySchedule ? daySchedule.unlocked.map((period) => ({
+            startMinutes: period.startMinutes,
+            endMinutes: period.endMinutes,
+            label: period.label
+        })) : [];
+
+        if (getDateKey(date) === SPECIAL_UNLOCK_DATE) {
+            windows.push({
+                startMinutes: 0,
+                endMinutes: SPECIAL_UNLOCK_END_MINUTES,
+                label: `00:00-${minutesToTimeString(SPECIAL_UNLOCK_END_MINUTES)}`
+            });
+        }
+
+        return windows.sort((a, b) => a.startMinutes - b.startMinutes);
+    }
+
+    function getNextUnlockFromSchedule(now, maxDaysAhead) {
+        const currentMinutes = timeToMinutes(now.getHours(), now.getMinutes());
+        const limit = typeof maxDaysAhead === 'number' ? maxDaysAhead : 7;
+
+        for (let offset = 0; offset <= limit; offset += 1) {
+            const date = new Date(now);
+            date.setHours(0, 0, 0, 0);
+            date.setDate(date.getDate() + offset);
+
+            const windows = getUnlockedWindowsForDate(date);
+            if (!windows.length) {
+                continue;
+            }
+
+            for (let i = 0; i < windows.length; i += 1) {
+                const startMinutes = windows[i].startMinutes;
+                if (offset === 0 && startMinutes <= currentMinutes) {
+                    continue;
+                }
+                const candidate = new Date(date);
+                const hours = Math.floor(startMinutes / 60);
+                const mins = startMinutes % 60;
+                candidate.setHours(hours, mins, 0, 0);
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    function getNextUnlockFromSpecialDate(now) {
+        const specialDate = parseDateKey(SPECIAL_UNLOCK_DATE);
+        if (!specialDate) {
+            return null;
+        }
+        if (specialDate <= now) {
+            return null;
+        }
+        return specialDate;
+    }
+
+    function getNextUnlockDateTime(now) {
+        const scheduleCandidate = getNextUnlockFromSchedule(now, 7);
+        const specialCandidate = getNextUnlockFromSpecialDate(now);
+
+        if (scheduleCandidate && specialCandidate) {
+            return scheduleCandidate < specialCandidate ? scheduleCandidate : specialCandidate;
+        }
+        return scheduleCandidate || specialCandidate || null;
+    }
+
+    function formatNextUnlockMessage(now) {
+        const nextUnlock = getNextUnlockDateTime(now);
+        if (!nextUnlock) {
+            return 'Следующая разблокировка не запланирована';
+        }
+        const timeLabel = minutesToTimeString(timeToMinutes(nextUnlock.getHours(), nextUnlock.getMinutes()));
+        if (isSameDate(nextUnlock, now)) {
+            return `Разблокируется в ${timeLabel}`;
+        }
+        const day = String(nextUnlock.getDate()).padStart(2, '0');
+        const month = String(nextUnlock.getMonth() + 1).padStart(2, '0');
+        return `Разблокируется ${day}.${month} в ${timeLabel}`;
+    }
+
     function isSpecialUnlockActive(date, hour, minute) {
         if (!(date instanceof Date)) return false;
         const dateKey = getDateKey(date);
@@ -405,7 +517,7 @@
         // Check if we're in blocking interval
         if (shouldBlock) {
             console.log(`[TimeBlocker] BLOCKING PAGE - Time is up`);
-            setBlockedState('Time is up');
+            setBlockedState('Time is up', formatNextUnlockMessage(now));
             removeWarningTimer();
             return;
         }
@@ -440,7 +552,7 @@
     const initialEffectiveShouldBlock = initialSpecialUnlockActive ? false : initialBaseShouldBlock;
 
     if (initialEffectiveShouldBlock) {
-        setBlockedState('Time is up');
+        setBlockedState('Time is up', formatNextUnlockMessage(debugNow));
     } else {
         setAllowedState();
     }
