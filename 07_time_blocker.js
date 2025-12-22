@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.24
+// @version      1.25
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -16,6 +16,8 @@
     const SPECIAL_UNLOCK_END_MINUTES = 21 * 60; // Окончание спец-разблокировки (21:00) в минутах с полуночи
     const SPECIAL_MORNING_INTERVAL_DATE = '2025-11-16'; // День с продлённым утренним окном
     const SPECIAL_MORNING_INTERVAL_END = '14:00'; // Время окончания утреннего окна для спец-дня
+    const SPECIAL_SECOND_INTERVAL_EARLY_DATE = '2025-12-22'; // Разовое раннее начало второго интервала
+    const SPECIAL_SECOND_INTERVAL_EARLY_START = '16:00'; // Новое начало второго интервала для даты выше
 
     // --- SCHEDULE SETTINGS ---
     // Каждый день содержит список окон, когда экран разблокирован (формат HH:MM).
@@ -287,7 +289,49 @@
         if (!daySchedule) {
             return null;
         }
-        return applySpecialMorningIntervalOverride(daySchedule, date);
+        const withEarlySecond = applySpecialSecondIntervalEarlyOverride(daySchedule, date);
+        return applySpecialMorningIntervalOverride(withEarlySecond, date);
+    }
+
+    function applySpecialSecondIntervalEarlyOverride(daySchedule, date) {
+        if (!(date instanceof Date)) {
+            return daySchedule;
+        }
+        const dateKey = getDateKey(date);
+        if (dateKey !== SPECIAL_SECOND_INTERVAL_EARLY_DATE) {
+            return daySchedule;
+        }
+
+        const targetIndex = 1; // второй интервал в списке
+        const targetPeriod = daySchedule.unlocked[targetIndex];
+        if (!targetPeriod) {
+            return daySchedule;
+        }
+
+        const newStartMinutes = timeStringToMinutes(SPECIAL_SECOND_INTERVAL_EARLY_START);
+        if (newStartMinutes >= targetPeriod.endMinutes) {
+            return daySchedule;
+        }
+
+        const updatedUnlocked = daySchedule.unlocked.map((period, idx) => {
+            if (idx !== targetIndex) {
+                return { ...period };
+            }
+            return {
+                ...period,
+                from: SPECIAL_SECOND_INTERVAL_EARLY_START,
+                label: `${SPECIAL_SECOND_INTERVAL_EARLY_START}-${period.to}`,
+                startMinutes: newStartMinutes
+            };
+        }).sort((a, b) => a.startMinutes - b.startMinutes);
+
+        return {
+            ...daySchedule,
+            unlocked: updatedUnlocked,
+            summary: updatedUnlocked.length
+                ? updatedUnlocked.map((period) => period.label).join(', ')
+                : 'нет окон'
+        };
     }
 
     function applySpecialMorningIntervalOverride(daySchedule, date) {
