@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         07_time_blocker - Блокировщик по времени
 // @namespace    http://tampermonkey.net/
-// @version      1.25
+// @version      1.26
 // @description  Блокировка страниц в определённые временные интервалы с возможностью задания минут
 // @match        *://*/*
 // @grant        none
@@ -16,7 +16,7 @@
     const SPECIAL_UNLOCK_END_MINUTES = 21 * 60; // Окончание спец-разблокировки (21:00) в минутах с полуночи
     const SPECIAL_MORNING_INTERVAL_DATE = '2025-11-16'; // День с продлённым утренним окном
     const SPECIAL_MORNING_INTERVAL_END = '14:00'; // Время окончания утреннего окна для спец-дня
-    const SPECIAL_SECOND_INTERVAL_EARLY_DATE = '2025-12-22'; // Разовое раннее начало второго интервала
+    const SPECIAL_SECOND_INTERVAL_EARLY_DATE = '2025-12-23'; // Разовое раннее начало второго интервала
     const SPECIAL_SECOND_INTERVAL_EARLY_START = '16:00'; // Новое начало второго интервала для даты выше
 
     // --- SCHEDULE SETTINGS ---
