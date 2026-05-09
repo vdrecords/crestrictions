@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.11.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.9: USER SETTINGS блок. v0.10: автоCSS-скрытие block-путей. v0.11: (a) окно «Цель выполнена» исчезает по completed (а не остаётся плавать), (b) автопереключение Bullet→Blitz 3+2 на /play/online если chess.com помнил Bullet
+// @version      0.11.1
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.9: USER SETTINGS блок. v0.10: автоCSS-скрытие block-путей. v0.11: окно цели исчезает по completed + автопереключение Bullet→Blitz на /play/online. v0.11.1: скрытие публичного чата на lichess (.mchat — Чат для зрителей)
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -1791,6 +1791,10 @@
             a.tsht.tsht-short,
             a.tsht.tsht-variant,
             .ucc-blocked-tour { display: none !important; }
+            /* v0.11.1: публичный чат «Чат для зрителей» на партиях/наблюдении.
+               <section class="mchat"> содержит ленту чужих сообщений с user-link на профили
+               и input «Будьте вежливы в чате!» — соцсоставляющая, скрываем целиком. */
+            section.mchat, .mchat { display: none !important; }
         `);
         // v0.10: ссылки на /tournament/new (и любые другие пути из lichess block-list) скрывает initAutoHideBlockedPaths.
 
