@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.12.3
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач.
+// @version      0.12.4
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet').
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -2154,7 +2154,15 @@
 
         function textHasAllowedType(text) {
             if (!text) return false;
-            return lichessCfg.allowedGameTypes.some((type) => text.includes(type));
+            const types = lichessCfg.allowedGameTypes.slice();
+            // v0.12.4: при открытом Bullet-окне 'Пуля'/'Bullet' тоже считаются разрешёнными.
+            // Без этого на странице Bullet-партии (gameType="1+0 • Пуля • Xм") applyRules
+            // не пропускал bypass и скрывал доску через boardSelectors. Симметрия с getEffectiveMinMinutes().
+            const bullet = applyBulletWindowState();
+            if (bullet && bullet.isOpen) {
+                types.push('Пуля', 'Bullet');
+            }
+            return types.some((type) => text.includes(type));
         }
 
         // Парсит "X+Y" из текста карточки турнира на /tournament или /tournament/<id>.
