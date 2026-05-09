@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.4.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM
+// @version      0.5.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -266,16 +266,19 @@
                 'Блиц', 'Рапид', 'Классика', 'Классические',
                 'Blitz', 'Rapid', 'Classical', 'SuperBlitz' // SuperBlitz = 3+0, это Blitz
             ],
-            // Селекторы для hook-модалки на /?any#hook (Создать запрос на игру)
+            // Селекторы для game-setup-модалки (одинаковая структура у hook / ai / friend).
+            // Активна на: /?any#hook (создать запрос), /play/computer (с компом), /?friend (с другом).
+            // submitButton ловит все три варианта внутри модалки (--hook / --ai / --friend).
             hookSelectors: {
                 modal: '.dialog-content.game-setup',
                 variantToggle: '.mselect',
+                variantName: '.mselect .text .name',
                 tabsContainer: '.time-control-tabs .tabs-horiz',
                 timePanel: '.time-panel',
                 presetButtons: '.preset-btn',
                 presetActive: '.preset-btn.active',
                 minutesValue: '.sliders-grid > .slider-container:first-child .val-box',
-                submitButton: '.lobby__start__button--hook'
+                submitButton: '.footer .lobby__start__button'
             },
             // Классы карточек турниров /tournament
             tournamentCardClasses: {
@@ -1499,6 +1502,13 @@
         if (HOST !== 'lichess.org') return;
         if (CONFIG.lichess.disableOnDates.includes(formatDateKey())) return;
 
+        // CSS-инъекция: скрываем кнопки лобби, ведущие к запрещённым потокам.
+        // «Бросить вызов другу» = форма прямого контакта с конкретным игроком (соцка) → блок.
+        // Остаются на лобби только «Создать запрос на игру» и «Сыграть с компьютером».
+        addStyle(`
+            .lobby__start__button--friend { display: none !important; }
+        `);
+
         // Универсальный фильтр /training/*: разрешены только корень, /training/themes
         // и конкретные задачи /training/<numeric-id>. Любая новая тема,
         // которую Lichess добавит в будущем (/training/<text>), автоматически блокируется.
@@ -1581,20 +1591,35 @@
             });
         }
 
-        // Фильтр hook-модалки (Создать запрос на игру)
+        // Фильтр game-setup-модалки (hook / ai / friend — одна структура DOM).
+        // На /play/computer модалка открыта по умолчанию, дефолтный таб «Отсутствует» (без часов).
+        // Поэтому: скрываем запрещённые табы И программно переключаем на «По часам» если активный — запрещён.
         function filterHookModal() {
             const h = lichessCfg.hookSelectors;
             const modal = document.querySelector(h.modal);
             if (!modal) return;
 
-            // Скрываем variant toggle (только стандартные шахматы)
+            // Скрываем variant toggle (только стандартные шахматы; «С позиции», «Atomic», etc. — блок)
             modal.querySelectorAll(h.variantToggle).forEach((el) => safeHide(el));
 
-            // Скрываем tabs: "Игра по переписке" (correspondence) + "Отсутствует" (no-clock = долгие партии)
+            // Скрываем tabs: «Игра по переписке» (correspondence) + «Отсутствует» (no-clock = долгие партии).
+            // Если активный таб — запрещённый, программно переключаем на «По часам» (один раз).
+            let allowedTabBtn = null;
+            let needSwitchClock = false;
             modal.querySelectorAll(`${h.tabsContainer} button`).forEach((btn) => {
                 const t = (btn.textContent || '').trim();
-                if (/перепис|correspondence|Отсутствует|Unlimited/i.test(t)) safeHide(btn);
+                const isBlocked = /перепис|correspondence|Отсутствует|Unlimited/i.test(t);
+                const isAllowedClock = /час|clock|time/i.test(t) && !isBlocked;
+                if (isBlocked) {
+                    safeHide(btn);
+                    if (btn.classList.contains('active')) needSwitchClock = true;
+                }
+                if (isAllowedClock) allowedTabBtn = btn;
             });
+            if (needSwitchClock && allowedTabBtn && allowedTabBtn.dataset.uccAutoClicked !== '1') {
+                allowedTabBtn.dataset.uccAutoClicked = '1';
+                try { allowedTabBtn.click(); } catch (err) { log('auto-switch clock tab failed', err); }
+            }
 
             // Скрываем пресеты <minMinutes (1+0, 2+1)
             modal.querySelectorAll(h.presetButtons).forEach((btn) => {
@@ -1603,11 +1628,22 @@
                 if (minutes !== null && minutes < minMinutes) safeHide(btn);
             });
 
-            // Перехват submit-кнопки: проверяем выбранное время
-            const submit = modal.querySelector(h.submitButton);
-            if (submit && submit.dataset.uccHookGuard !== '1') {
+            // Перехват submit-кнопок (--hook / --ai / --friend) внутри модалки.
+            // Проверка двух условий: вариант = стандартные шахматы И время ≥ minMinutes.
+            modal.querySelectorAll(h.submitButton).forEach((submit) => {
+                if (submit.dataset.uccHookGuard === '1') return;
                 submit.dataset.uccHookGuard = '1';
                 submit.addEventListener('click', (event) => {
+                    // 1. Variant check
+                    const variantName = (modal.querySelector(h.variantName)?.textContent || '').trim();
+                    const isStandard = !variantName || /^(шахматы|стандартн|standard)/i.test(variantName);
+                    if (!isStandard) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        window.alert(`Можно играть только в стандартные шахматы.\nТекущий вариант: «${variantName}». Смените на «Шахматы».`);
+                        return;
+                    }
+                    // 2. Time check
                     const minutesValueEl = modal.querySelector(h.minutesValue);
                     const valueText = (minutesValueEl?.textContent || '').trim();
                     let minutes = parseFloat(valueText);
@@ -1617,10 +1653,10 @@
                     if (Number.isNaN(minutes) || minutes < minMinutes) {
                         event.preventDefault();
                         event.stopImmediatePropagation();
-                        window.alert(`Можно играть только Блиц от ${minMinutes}+0, Рапид и Классику.\nВыберите минут на партию ≥ ${minMinutes}.`);
+                        window.alert(`Можно играть только Блиц от ${minMinutes}+0, Рапид и Классику.\nВыберите минут на партию ≥ ${minMinutes}, вкладка «По часам».`);
                     }
                 }, true);
-            }
+            });
         }
 
         const applyRules = () => {

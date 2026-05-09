@@ -116,6 +116,7 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 
 ## История
 
+- **0.5.0** (2026-05-09) — `/play/computer` поддержка: универсальный submit-button (`.footer .lobby__start__button` ловит `--hook` / `--ai` / `--friend`), auto-switch с активного «Отсутствует»/«По переписке» на «По часам», variant-check на submit (блокировка не-стандартных шахмат), CSS-скрытие «Бросить вызов другу» на лобби. Memory-rule: перед запросом DOM у тебя — curl-проверка URL на 200
 - **0.4.0** (2026-05-09) — фильтр модалки создания игры на chess.com (Bullet/Daily секции + перехват кнопки), фильтр hook-модалки на lichess (variant/correspondence/Bullet пресеты + submit-guard), парсинг времени турниров через `data-glyph` и `tsht-variant`/`tsht-short`/regex, расписание 12:00, цели по дням, `/swiss` и `/simul` в block
 - **0.3.0** (2026-05-09) — path-whitelist для chess.com и lichess.org (default-deny), нормализация i18n-префиксов (`/ru/`, `/en-US/`), классика добавлена в allowedGameTypes
 - **0.2.0** (2026-05-09) — whitelist хостов сужен до chess.com / lichess.org, удалён ChessKing, удалён tournamentMode, удалён backdoor `window.unifiedChessControl`, remoteConfig отключён, универсальный regex для `/training/*`
