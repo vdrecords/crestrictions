@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.12.1
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.1: кнопки «−» (свернуть, persist) и «×» (закрыть до reload) на окне прогресса.
+// @version      0.12.2
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout окна прогресса (откат кнопок свернуть/закрыть из v0.12.1).
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -506,11 +506,7 @@
         tracker: {
             progressWindowInterval: null,
             racerMonitorStarted: false,
-            enforceGate: null,
-            // v0.12.1: пользовательские контролы окна прогресса.
-            // - progressClosedSession: ребёнок нажал ×, окно скрыто ДО reload (не персистится).
-            // - collapsed-state хранится в GM-storage 'ucc_progress_collapsed' (персистится между сессиями).
-            progressClosedSession: false
+            enforceGate: null
         },
         messageControl: {
             formRefreshers: new Set(),
@@ -1470,58 +1466,26 @@
 
         windowEl = document.createElement('div');
         windowEl.id = 'ucc-progress-window';
-        // v0.12: блок Bullet (data-section="bullet"). v0.12.1: header с кнопками − (свернуть) и × (закрыть на сессию).
+        // v0.12.2: компактный 2-строчный layout (откат кнопок свернуть/закрыть из v0.12.1).
+        // Строка 1 — задачи: «🎯 N/M задач · −R» (или «✅ Цель выполнена (N)»).
+        // Строка 2 — Bullet: «⚡ ...» (4 inline-состояния, не показывается если Bullet выключен).
         windowEl.innerHTML = `
-            <div class="ucc-progress-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-                <div class="ucc-progress-title" style="flex:1;font-weight:bold">Прогресс задач</div>
-                <div class="ucc-progress-controls" style="display:flex;gap:4px;flex-shrink:0;margin-top:-2px">
-                    <button data-action="collapse" type="button" title="Свернуть" aria-label="Свернуть"
-                            style="background:transparent;border:none;color:#fff;font-size:20px;font-weight:bold;cursor:pointer;padding:0 6px;line-height:1;opacity:0.85;border-radius:4px">−</button>
-                    <button data-action="close" type="button" title="Закрыть до перезагрузки страницы" aria-label="Закрыть"
-                            style="background:transparent;border:none;color:#fff;font-size:18px;cursor:pointer;padding:0 6px;line-height:1;opacity:0.85;border-radius:4px">×</button>
-                </div>
-            </div>
-            <div class="ucc-progress-body" data-section="body">
-                <div class="ucc-progress-row" data-role="tasks-solved-row">Решено: <strong data-role="solved">0</strong></div>
-                <div class="ucc-progress-row" data-role="tasks-target-row">Цель: <strong data-role="target">0</strong></div>
-                <div class="ucc-progress-row" data-role="tasks-remaining-row">Осталось: <strong data-role="remaining">0</strong></div>
-                <div class="ucc-bullet-section" data-section="bullet" style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25);display:none">
-                    <div class="ucc-bullet-title" style="font-weight:bold;margin-bottom:4px">⚡ Bullet</div>
-                    <div class="ucc-bullet-line" data-role="bullet-line">…</div>
-                    <div class="ucc-bullet-sub" data-role="bullet-sub" style="margin-top:4px;font-size:13px;opacity:0.85"></div>
-                </div>
-            </div>
+            <div class="ucc-progress-row" data-role="tasks-line">🎯 <span data-role="tasks-text">…</span></div>
+            <div class="ucc-progress-row" data-role="bullet-line" style="margin-top:6px;display:none">⚡ <span data-role="bullet-text">…</span></div>
         `;
         windowEl.style.cssText = [
             'position:fixed',
             'top:72px',
             'right:18px',
             'z-index:2147483647',
-            'min-width:240px',
             'max-width:320px',
-            'padding:14px 16px',
-            'border-radius:14px',
+            'padding:10px 14px',
+            'border-radius:12px',
             'background:rgba(24, 92, 168, 0.94)',
             'color:#fff',
-            'font:14px/1.45 Arial, sans-serif',
-            'box-shadow:0 18px 40px rgba(0,0,0,0.24)'
+            'font:13px/1.4 Arial, sans-serif',
+            'box-shadow:0 12px 30px rgba(0,0,0,0.24)'
         ].join(';');
-
-        // v0.12.1: event delegation для кнопок свернуть/закрыть (один раз на окно).
-        windowEl.addEventListener('click', (event) => {
-            const btn = event.target instanceof Element ? event.target.closest('[data-action]') : null;
-            if (!btn) return;
-            const action = btn.dataset.action;
-            if (action === 'close') {
-                RUNTIME.tracker.progressClosedSession = true;
-                windowEl.style.display = 'none';
-            } else if (action === 'collapse') {
-                const cur = readValue('ucc_progress_collapsed', null) === '1';
-                writeValue('ucc_progress_collapsed', cur ? '0' : '1');
-                updateProgressWindow();
-            }
-        });
-
         onReady(() => document.body.appendChild(windowEl));
         return windowEl;
     }
@@ -1534,39 +1498,32 @@
         return `${m}:${s < 10 ? '0' + s : s}`;
     }
 
-    // v0.12: формирует строку для блока Bullet в окне прогресса.
-    // Возвращает { line, sub, show } где line — основная фраза, sub — пояснение под ней.
+    // v0.12.2: формирует ОДНУ компактную inline-строку для Bullet-блока окна прогресса.
+    // 4 состояния: открыт сейчас / достижим (окно впереди) / cap / порог не достигнут / выключен.
     function formatBulletStatus(bullet) {
         if (!bullet || !bullet.enabled) {
-            return { show: false, line: '', sub: '' };
+            return { show: false, text: '' };
         }
         const closeStr = bullet.closeAt ? minutesToTimeString(getCurrentMinutes(bullet.closeAt)) : '';
         const openStr = bullet.openAt ? minutesToTimeString(getCurrentMinutes(bullet.openAt)) : '';
 
         if (bullet.isOpen) {
             const left = formatSecondsAsClock(bullet.secondsLeftInWindow);
-            return {
-                show: true,
-                line: `Открыт сейчас · осталось ${left}`,
-                sub: `Окно закроется в ${closeStr} (конец сессии).`
-            };
+            return { show: true, text: `Активен · ${left} до ${closeStr}` };
         }
         if (bullet.eligible) {
-            const cap = bullet.capReached ? ' (максимум)' : '';
-            const sub = bullet.capReached
-                ? `Конец сессии: ${closeStr}.`
-                : `Реши ещё ${bullet.nextStepTasks} задач — окно увеличится до ${bullet.nextStepEarnedMinutes} мин.`;
+            if (bullet.capReached) {
+                return { show: true, text: `${openStr}–${closeStr} (${bullet.earnedMinutes} мин — максимум)` };
+            }
             return {
                 show: true,
-                line: `Доступен сегодня с ${openStr} до ${closeStr} (${bullet.earnedMinutes} мин${cap})`,
-                sub
+                text: `${openStr}–${closeStr} (${bullet.earnedMinutes} мин) · +${bullet.nextStepTasks} → ${bullet.nextStepEarnedMinutes} мин`
             };
         }
-        // Не eligible — порог не достигнут
+        // Порог не достигнут
         return {
             show: true,
-            line: `Сейчас недоступен`,
-            sub: `До открытия окна (${bullet.threshold} задач) — ещё ${bullet.nextStepTasks} задач. Старт окна — ${bullet.nextStepEarnedMinutes} мин в конце дня.`
+            text: `+${bullet.nextStepTasks} задач → ${bullet.nextStepEarnedMinutes} мин в конце дня`
         };
     }
 
@@ -1575,81 +1532,44 @@
         const windowEl = createProgressWindow();
         if (!windowEl) return;
 
-        // v0.12.1: пользовательское «закрыть до reload» — игнорируем все обновления, окно скрыто.
-        // (RUNTIME.tracker.progressClosedSession сбрасывается на false при перезагрузке страницы.)
-        if (RUNTIME.tracker.progressClosedSession === true) {
-            windowEl.style.display = 'none';
-            return;
-        }
-
         const state = syncTrackerState(formatDateKey());
         const bullet = state.bullet || { enabled: false };
         const bulletInfo = formatBulletStatus(bullet);
-
-        // v0.12: окно полностью скрывается, когда цель выполнена И Bullet-блок неактивен/закрыт.
-        // Если Bullet включён и есть что показать (даже после выполнения цели) — окно остаётся.
         const tasksDone = state.remaining === 0;
+
+        // v0.12: синхронизируем body class — независимо от visibility, иначе при скрытом окне Bullet-фильтр не сработает.
+        applyBulletWindowState();
+
+        // Окно скрывается ТОЛЬКО когда цель выполнена И Bullet-блок неактивен/выключен.
         const showWindow = !tasksDone || bulletInfo.show;
-        const collapsed = readValue('ucc_progress_collapsed', null) === '1';
-        if (!showWindow && !collapsed) {
+        if (!showWindow) {
             windowEl.style.display = 'none';
             return;
         }
         windowEl.style.display = '';
 
-        // v0.12.1: если свёрнуто — скрываем body, меняем кнопку «−» на «+», ничего больше не обновляем.
-        const bodyEl = windowEl.querySelector('[data-section="body"]');
-        const collapseBtn = windowEl.querySelector('[data-action="collapse"]');
-        if (bodyEl) bodyEl.style.display = collapsed ? 'none' : '';
-        if (collapseBtn) {
-            collapseBtn.textContent = collapsed ? '+' : '−';
-            collapseBtn.title = collapsed ? 'Развернуть' : 'Свернуть';
-            collapseBtn.setAttribute('aria-label', collapseBtn.title);
-        }
-        const titleEl = windowEl.querySelector('.ucc-progress-title');
-        if (titleEl) {
-            if (collapsed) {
-                titleEl.textContent = tasksDone ? 'Цель выполнена ✅' : 'Прогресс задач';
+        // Строка задач: «🎯 N/M задач · −R» либо «✅ Цель выполнена (N)»
+        const tasksLine = windowEl.querySelector('[data-role="tasks-line"]');
+        const tasksText = windowEl.querySelector('[data-role="tasks-text"]');
+        if (tasksLine && tasksText) {
+            if (tasksDone) {
+                tasksLine.firstChild.nodeValue = '✅ ';
+                tasksText.textContent = `Цель выполнена (${state.solved})`;
             } else {
-                titleEl.textContent = tasksDone ? 'Цель выполнена ✅' : 'Прогресс задач';
-            }
-        }
-        // v0.12: синхронизируем body class — независимо от collapsed-состояния, иначе при свёрнутом окне Bullet-фильтр не сработает.
-        applyBulletWindowState();
-        if (collapsed) return;
-
-        // Блок «задачи»: при tasksDone — скрываем 3 строки про задачи (но окно остаётся ради bullet).
-        const tasksRows = ['tasks-solved-row', 'tasks-target-row', 'tasks-remaining-row'];
-        tasksRows.forEach((role) => {
-            const row = windowEl.querySelector(`[data-role="${role}"]`);
-            if (row) row.style.display = tasksDone ? 'none' : '';
-        });
-        if (!tasksDone) {
-            const solvedEl = windowEl.querySelector('[data-role="solved"]');
-            const targetEl = windowEl.querySelector('[data-role="target"]');
-            const remainingEl = windowEl.querySelector('[data-role="remaining"]');
-            if (solvedEl) solvedEl.textContent = String(state.solved);
-            if (targetEl) targetEl.textContent = String(state.target);
-            if (remainingEl) {
-                remainingEl.textContent = String(state.remaining);
-                remainingEl.style.color = '#ffe17e';
+                tasksLine.firstChild.nodeValue = '🎯 ';
+                tasksText.innerHTML = `<strong>${state.solved}</strong> / ${state.target} задач · <span style="color:#ffe17e">−${state.remaining}</span>`;
             }
         }
 
-        // Блок Bullet: 4 состояния (см. formatBulletStatus).
-        const bulletSection = windowEl.querySelector('[data-section="bullet"]');
-        if (bulletSection) {
+        // Строка Bullet: одна inline-фраза или скрыта целиком
+        const bulletLine = windowEl.querySelector('[data-role="bullet-line"]');
+        const bulletText = windowEl.querySelector('[data-role="bullet-text"]');
+        if (bulletLine && bulletText) {
             if (bulletInfo.show) {
-                bulletSection.style.display = '';
-                const lineEl = bulletSection.querySelector('[data-role="bullet-line"]');
-                const subEl = bulletSection.querySelector('[data-role="bullet-sub"]');
-                if (lineEl) lineEl.textContent = bulletInfo.line;
-                if (subEl) subEl.textContent = bulletInfo.sub;
-                bulletSection.style.borderTopColor = tasksDone ? 'transparent' : 'rgba(255,255,255,0.25)';
-                bulletSection.style.marginTop = tasksDone ? '0' : '12px';
-                bulletSection.style.paddingTop = tasksDone ? '0' : '10px';
+                bulletLine.style.display = '';
+                bulletText.textContent = bulletInfo.text;
             } else {
-                bulletSection.style.display = 'none';
+                bulletLine.style.display = 'none';
             }
         }
     }
