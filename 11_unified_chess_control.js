@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.6.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. Fix: /training/coordinate /daily /dashboard теперь allow
+// @version      0.7.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.7: блок /logout, close-account/delete на обоих сайтах + CSS+DOM-walker по тексту «Выйти/Logout/Удалить аккаунт»
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -90,15 +90,18 @@
                         '/membership', '/votechess', '/computer-chess-championship',
                         '/variants', '/aimchess', '/play/coach', '/play/online/watch',
                         // Профили (доступ к чужим = доступ к кнопке "Написать сообщение")
-                        '/member', '/users', '/user'
+                        '/member', '/users', '/user',
+                        // Logout / закрытие аккаунта (v0.7) — родитель один раз залогинил, ребёнок не должен разлогиниваться/удалять профиль
+                        '/logout'
                     ],
                     blockRegex: [
                         '^/play/online/new\\?.*\\bdaily=',          // correspondence в block
                         '^/play/online/new\\?.*\\btime=daily',
-                        '^/play/online/[A-Za-z0-9]+/?\\?.*\\bdaily='
+                        '^/play/online/[A-Za-z0-9]+/?\\?.*\\bdaily=',
+                        '^/settings/close'                          // /settings/close-account и любые варианты close*
                     ],
                     allow: [
-                        '/', '/home', '/login', '/logout', '/signup', '/register',
+                        '/', '/home', '/login', '/signup', '/register',
                         '/settings', '/account', '/manifest.json',
                         // Главное — задачи
                         '/puzzles', '/daily',
@@ -132,14 +135,17 @@
                         // Швейцарка — обычно сильно дольше идёт, потеря времени (Vladimir 2026-05-09)
                         '/swiss',
                         // Симульный сеанс — играется параллельно несколько партий, длится часами
-                        '/simul'
+                        '/simul',
+                        // Logout / закрытие аккаунта (v0.7). /logout и /account/close редиректят на signup/login,
+                        // что ломает текущий залогиненный сеанс. Прямого пути нет, кнопки — также скрыты CSS+DOM-walker.
+                        '/logout', '/account/close', '/account/delete'
                     ],
                     blockRegex: [
                         '^/@/',                                  // профили /@/<username>
                         '^/games(?:/?$|/(?:search|export))'      // /games главная / поиск (НО /games/<id> — allow ниже)
                     ],
                     allow: [
-                        '/', '/login', '/signup', '/logout', '/account', '/manifest.json',
+                        '/', '/login', '/signup', '/account', '/manifest.json',
                         '/feed.atom', '/about', '/faq', '/contact', '/help',
                         '/source', '/ads', '/privacy', '/terms-of-service',
                         '/run', '/api', '/fide',
@@ -1399,6 +1405,96 @@
         return parseInt(match[1], 10);
     }
 
+    // v0.7: скрываем кнопки «Выйти из аккаунта» и «Удалить/Закрыть аккаунт» на обоих сайтах.
+    // Двойная защита поверх path-whitelist (родитель один раз залогинил — ребёнок не должен разлогиниваться/удалять профиль):
+    //   1) CSS — селекторы по href/action ловят `<a href="/logout">`, `<form action="/logout">`,
+    //      `<a href="/account/close">`, `<a href="/settings/close-account">` и их вариации (HTTPS-абсолютные тоже).
+    //   2) DOM-walker — обходит a/button/[role=menuitem]/[role=button] и скрывает по тексту-ярлыку
+    //      ("Выйти", "Logout", "Sign out", "Закрыть аккаунт", "Удалить аккаунт", "Close account", "Delete account").
+    //      Это страховка от onclick-обработчиков без href и от пунктов dropdown'а без явной семантики.
+    //   3) MutationObserver — переобход при rerender (chess.com и lichess SPA-перерисовывают меню профиля динамически).
+    function initAccountControlHider() {
+        if (HOST !== 'chess.com' && HOST !== 'www.chess.com' && HOST !== 'lichess.org') return;
+
+        const cssSelectors = [
+            // /logout (GET-endpoint, который выполняет logout — сразу разлогинит)
+            'a[href="/logout"]', 'a[href$="/logout"]', 'a[href*="/logout?"]',
+            'a[href$="://www.chess.com/logout"]', 'a[href$="://lichess.org/logout"]',
+            'form[action="/logout"]', 'form[action$="/logout"]',
+            // chess.com close-account
+            'a[href*="/settings/close-account"]', 'a[href*="/settings/close"]',
+            // lichess close/delete account
+            'a[href="/account/close"]', 'a[href*="/account/close"]',
+            'a[href="/account/delete"]', 'a[href*="/account/delete"]',
+            'form[action*="/account/close"]', 'form[action*="/account/delete"]'
+        ];
+        addStyle(cssSelectors.map((s) => `${s} { display: none !important; }`).join('\n'));
+
+        // Регэксп текстов кнопок/ссылок логаута и удаления аккаунта (RU + EN, case-insensitive).
+        // \b не работает с кириллицей в JS-regex старых движков — используем границы вручную.
+        const TEXT_PATTERN = /(?:^|[\s>])(?:выйти(?:\s+из\s+(?:аккаунта|учётной\s+записи|профиля))?|logout|log\s*out|sign\s*out|закрыть\s+аккаунт|закрыть\s+профиль|удалить\s+аккаунт|удалить\s+профиль|close\s+(?:my\s+)?account|delete\s+(?:my\s+)?account)(?:[\s<.,!?:;]|$)/i;
+
+        const SELECTOR = 'a, button, [role="menuitem"], [role="button"]';
+
+        const isAccountControl = (el) => {
+            const text = (el.textContent || '').trim();
+            if (text.length < 4 || text.length > 80) return false; // too short / too long → most likely не та кнопка
+            return TEXT_PATTERN.test(text);
+        };
+
+        const hideEl = (el) => {
+            if (el.dataset && el.dataset.uccAccountHidden === '1') return;
+            // Скрываем сам элемент. Если это <a> или <button> внутри списка — скрываем родителя <li>/.dropdown-item тоже.
+            el.style.setProperty('display', 'none', 'important');
+            el.dataset && (el.dataset.uccAccountHidden = '1');
+            const parentLi = el.closest('li, [role="menuitem"], .dropdown-item, .nav-item, .menu-item');
+            if (parentLi && parentLi !== el) {
+                parentLi.style.setProperty('display', 'none', 'important');
+            }
+        };
+
+        const sweep = () => {
+            try {
+                const candidates = document.querySelectorAll(SELECTOR);
+                for (const el of candidates) {
+                    if (isAccountControl(el)) hideEl(el);
+                }
+            } catch (e) {
+                log('AccountControlHider sweep error', e);
+            }
+        };
+
+        const startObserver = () => {
+            sweep();
+            try {
+                const observer = new MutationObserver(() => {
+                    // Дебаунс через requestAnimationFrame: rerender'ы dropdown'ов часто идут пачками.
+                    if (RUNTIME.accountHider && RUNTIME.accountHider.scheduled) return;
+                    if (!RUNTIME.accountHider) RUNTIME.accountHider = {};
+                    RUNTIME.accountHider.scheduled = true;
+                    requestAnimationFrame(() => {
+                        RUNTIME.accountHider.scheduled = false;
+                        sweep();
+                    });
+                });
+                observer.observe(document.body || document.documentElement, {
+                    childList: true,
+                    subtree: true
+                });
+            } catch (e) {
+                log('AccountControlHider observer error', e);
+            }
+        };
+
+        if (document.body) {
+            startObserver();
+        } else {
+            document.addEventListener('DOMContentLoaded', startObserver, { once: true });
+        }
+        // Дополнительные проходы — на случай позднего рендера dropdown'ов.
+        [200, 800, 2000, 5000].forEach((delay) => window.setTimeout(sweep, delay));
+    }
+
     function initChessComFilter() {
         if (!CONFIG.modules.chessComFilter) return;
         if (HOST !== 'chess.com' && HOST !== 'www.chess.com') return;
@@ -1837,6 +1933,7 @@
         return;
     }
 
+    initAccountControlHider();
     initChessComFilter();
     initLichessFilter();
     // initMessageControl(); // LEGACY (v0.3.0+, 2026-05-09): переписка теперь блокируется через path-whitelist

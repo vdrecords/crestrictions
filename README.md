@@ -2,7 +2,7 @@
 
 Tampermonkey-userscript: ребёнок может тренировать **задачи** + играть только **Блиц (от 3+0) / Рапид / Классику**. Всё остальное — Bullet, варианты шахмат (Chess960, Crazyhouse, Atomic, etc.), correspondence, соцка (форумы, клубы, переписка) — заблокировано двумя слоями: path-whitelist + DOM/CSS-фильтр.
 
-**Версия:** см. `@version` в `cc.user.js` (актуально 0.4.0).
+**Версия:** см. `@version` в `cc.user.js` (актуально 0.7.0).
 
 ---
 
@@ -91,12 +91,14 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 - `/streamer`, `/streamers`, `/tv`, `/watch`, `/events`, `/news`, `/articles`, `/blogs`, `/today`
 - `/membership`, `/votechess`, `/computer-chess-championship`, `/variants`, `/aimchess`
 - `/member`, `/users`, `/user` (профили)
+- `/logout`, `/settings/close*` (выход / удаление аккаунта)
 
 ### Lichess.org
 - `/inbox`, `/team`, `/forum`, `/blog`, `/ublog`, `/coach`, `/player`, `/players`, `/patron`, `/timeline`
 - `/tv`, `/video`, `/streamer`, `/broadcast`
 - `/games/search`, `/swiss`, `/simul`
 - `/@/<username>` (профили)
+- `/logout`, `/account/close`, `/account/delete` (выход / удаление аккаунта)
 
 ---
 
@@ -116,6 +118,8 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 
 ## История
 
+- **0.7.0** (2026-05-09) — блокировка logout / удаления аккаунта на обоих сайтах. Path-policy: `/logout` (chess.com и lichess), `/account/close`/`/account/delete` (lichess), `/settings/close*` (chess.com через blockRegex). CSS+DOM-walker: `initAccountControlHider()` инжектит селекторы по `href`/`action` (`a[href$="/logout"]`, `form[action*="/logout"]`, `a[href*="/account/close"]`) + MutationObserver обходит a/button/menuitem на тексты «Выйти», «Logout», «Sign out», «Закрыть аккаунт», «Удалить аккаунт», «Close account», «Delete account» и скрывает их (включая родительский `<li>` / `.dropdown-item`). Цель: родитель один раз залогинил — ребёнок не должен случайно или намеренно разлогиниться/удалить профиль. Curl-verified: `/logout` (302→/), `/settings/close-account` (200), `/account/close` (200), `/account/delete` (200), `/auth/logout` (404 — не существует), `/settings/close` (404 — только `close-account`)
+- **0.6.0** (2026-05-09) — fix false-block для встроенных тренажёров lichess: `/training/coordinate` (Координаты), `/training/daily` (Задача дня), `/training/dashboard/<rating>` (Панель задач) добавлены в `isAllowedTrainingPath`. Удалён фантомный `/coordinate` из allow chess.com (404 на голом /coordinate, реальный URL — только `/training/coordinate`)
 - **0.5.0** (2026-05-09) — `/play/computer` поддержка: универсальный submit-button (`.footer .lobby__start__button` ловит `--hook` / `--ai` / `--friend`), auto-switch с активного «Отсутствует»/«По переписке» на «По часам», variant-check на submit (блокировка не-стандартных шахмат), CSS-скрытие «Бросить вызов другу» на лобби. Memory-rule: перед запросом DOM у тебя — curl-проверка URL на 200
 - **0.4.0** (2026-05-09) — фильтр модалки создания игры на chess.com (Bullet/Daily секции + перехват кнопки), фильтр hook-модалки на lichess (variant/correspondence/Bullet пресеты + submit-guard), парсинг времени турниров через `data-glyph` и `tsht-variant`/`tsht-short`/regex, расписание 12:00, цели по дням, `/swiss` и `/simul` в block
 - **0.3.0** (2026-05-09) — path-whitelist для chess.com и lichess.org (default-deny), нормализация i18n-префиксов (`/ru/`, `/en-US/`), классика добавлена в allowedGameTypes
