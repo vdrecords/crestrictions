@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.11.2
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.9: USER SETTINGS блок. v0.10: автоCSS-скрытие block-путей. v0.11: окно цели исчезает по completed + автопереключение Bullet→Blitz на /play/online. v0.11.1: скрытие публичного чата на lichess (.mchat — Чат для зрителей)
+// @version      0.12.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED.
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -105,6 +105,33 @@
     const SHOW_PROGRESS_WINDOW = true;          // Плавающее окно прогресса задач
     const ENABLE_CHESSCOM_PUZZLES_MODE = true;  // Считать chess.com /puzzles в прогресс
     const TASKS_PER_MESSAGE = 10;               // Сколько задач = 1 сообщение (LEGACY)
+
+    // ─── 9. НАГРАДА BULLET (v0.12) ───────────────────────────────────────────
+    // Bullet (1+0, ~1 мин/партия) обычно блокируется как «отвлекающий формат».
+    // Этот блок открывает Bullet-окно В КОНЦЕ дневного расписания, если ребёнок
+    // решил достаточно задач Lichess Racer. Окно открывается АВТОМАТИЧЕСКИ —
+    // никаких кнопок. По истечении расписания (конец последнего интервала)
+    // окно закрывается, активная партия доигрывается, новые партии блокируются.
+    //
+    // Логика:
+    //   solved < threshold        → 0 минут Bullet (недоступен)
+    //   solved == threshold       → minutesAtThreshold минут окна в конце дня
+    //   solved == threshold + N   → minutesAtThreshold + (N/step) × extraPerStep
+    //   max                       → cap минут в день
+    //
+    // Применяется к ЛЮБОМУ дню недели (будни/особый/выходные одинаково).
+    // В будни (цель 100) физически недостижимо 400 решённых — окно не появится.
+    // В выходные (цель 1000) после ~40-90% нормы окно открыто на 10-60 мин.
+    //
+    // Master toggle ENABLED = false полностью отключает всю логику Bullet-окна.
+    const BULLET_REWARD_ENABLED = true;              // Master toggle (false = Bullet всегда заблокирован)
+    const BULLET_REWARD_THRESHOLD = 400;             // Порог задач для открытия окна
+    const BULLET_REWARD_MINUTES_AT_THRESHOLD = 10;   // Длительность окна при достижении порога
+    const BULLET_REWARD_EXTRA_MINUTES_PER_STEP = 10; // +N минут за каждые M доп. задач сверх порога
+    const BULLET_REWARD_STEP_TASK_COUNT = 100;       // Размер шага (M доп. задач для следующего расширения)
+    const BULLET_REWARD_CAP_MINUTES = 60;            // Потолок окна (макс. минут в день)
+    const BULLET_REWARD_MIN_BULLET_SECONDS = 60;     // Минимум базы партии в окне (60 = 1+0 разрешён)
+    const BULLET_REWARD_DISABLED_DATES = [];         // ['2026-05-15'] — дни когда родитель явно закрывает Bullet
 
     // ═════════════════════════════════════════════════════════════════════════
     // 🔧 ТЕХНИЧЕСКАЯ КОНФИГУРАЦИЯ (DOM-селекторы, regex, паттерны URL)
@@ -279,6 +306,18 @@
             chessComPuzzlesRoot: '/puzzles', // Корневой путь puzzles на Chess.com
             showProgressWindow: SHOW_PROGRESS_WINDOW,
             processedRaceKeepDays: 7 // Сколько дней хранить отметки обработанных гонок
+        },
+
+        bulletReward: {
+            enabled: BULLET_REWARD_ENABLED,
+            threshold: BULLET_REWARD_THRESHOLD,
+            minutesAtThreshold: BULLET_REWARD_MINUTES_AT_THRESHOLD,
+            extraMinutesPerStep: BULLET_REWARD_EXTRA_MINUTES_PER_STEP,
+            stepTaskCount: BULLET_REWARD_STEP_TASK_COUNT,
+            capMinutes: BULLET_REWARD_CAP_MINUTES,
+            minBulletSeconds: BULLET_REWARD_MIN_BULLET_SECONDS,
+            disabledDates: BULLET_REWARD_DISABLED_DATES,
+            bodyClass: 'ucc-bullet-window-open'
         },
 
         chessCom: {
@@ -1003,12 +1042,15 @@
         if (broadcast) {
             publishProgress(dateKey, solved);
         }
+        // v0.12: считаем Bullet-окно для UI (всегда, чтобы прозрачно показывать прогресс).
+        const bullet = computeBulletReward(solved);
         return {
             dateKey,
             solved,
             target,
             remaining,
             unlockGranted: remaining === 0,
+            bullet,
             keys
         };
     }
@@ -1132,6 +1174,124 @@
         return null;
     }
 
+    // v0.12: возвращает Date конца ПОСЛЕДНЕГО интервала расписания за сегодня
+    // (т.е. момент, когда сессия будет полностью закрыта на сегодняшний день).
+    // Если на сегодня нет интервалов — возвращает null. Bullet-окно цепляется
+    // именно к этому моменту: closeAt = scheduleEnd, openAt = scheduleEnd − earnedMinutes.
+    function getLastScheduleEndOfDay(date = new Date()) {
+        const windows = getUnlockedWindowsForDate(date);
+        if (!windows.length) return null;
+        const lastWindow = windows[windows.length - 1];
+        const endDate = new Date(date);
+        endDate.setHours(0, 0, 0, 0);
+        endDate.setMinutes(lastWindow.end);
+        return endDate;
+    }
+
+    // v0.12: главная функция расчёта Bullet-окна.
+    // Логика:
+    //   solved < threshold → 0 минут (недоступен)
+    //   solved == threshold → minutesAtThreshold минут окна в конце дня
+    //   solved == threshold + N×step → minutesAtThreshold + N×extraPerStep (до cap)
+    //
+    // Окно ВСЕГДА в конце последнего интервала расписания (closeAt = scheduleEnd).
+    // openAt динамически отъезжает раньше при увеличении solved.
+    // Применимо к ЛЮБОМУ дню недели, включая будни (не привязка к выходным).
+    function computeBulletReward(solved, now = new Date()) {
+        const cfg = CONFIG.bulletReward || {};
+        const result = {
+            enabled: false,
+            eligible: false,
+            earnedMinutes: 0,
+            capReached: false,
+            nextStepTasks: 0,
+            nextStepEarnedMinutes: 0,
+            scheduleEnd: null,
+            openAt: null,
+            closeAt: null,
+            isOpen: false,
+            minutesUntilOpen: 0,
+            secondsLeftInWindow: 0,
+            threshold: cfg.threshold || 0,
+            cap: cfg.capMinutes || 0
+        };
+
+        if (!cfg.enabled) return result;
+
+        const dateKey = formatDateKey(now);
+        if (Array.isArray(cfg.disabledDates) && cfg.disabledDates.includes(dateKey)) {
+            return result;
+        }
+
+        const scheduleEnd = getLastScheduleEndOfDay(now);
+        if (!scheduleEnd) return result;
+        result.scheduleEnd = scheduleEnd;
+        result.closeAt = scheduleEnd;
+
+        result.enabled = true;
+        const threshold = cfg.threshold || 400;
+        const minutesAtThreshold = cfg.minutesAtThreshold || 10;
+        const extraPerStep = cfg.extraMinutesPerStep || 10;
+        const stepTaskCount = cfg.stepTaskCount || 100;
+        const capMinutes = cfg.capMinutes || 60;
+
+        if (solved < threshold) {
+            result.nextStepTasks = threshold - solved;
+            result.nextStepEarnedMinutes = minutesAtThreshold;
+            return result;
+        }
+
+        result.eligible = true;
+        const extraSteps = Math.floor((solved - threshold) / stepTaskCount);
+        const rawMinutes = minutesAtThreshold + extraSteps * extraPerStep;
+        result.earnedMinutes = Math.min(rawMinutes, capMinutes);
+        result.capReached = result.earnedMinutes >= capMinutes;
+
+        if (!result.capReached) {
+            const nextThresholdSolved = threshold + (extraSteps + 1) * stepTaskCount;
+            result.nextStepTasks = Math.max(0, nextThresholdSolved - solved);
+            result.nextStepEarnedMinutes = Math.min(rawMinutes + extraPerStep, capMinutes);
+        }
+
+        const openAt = new Date(scheduleEnd.getTime() - result.earnedMinutes * 60 * 1000);
+        result.openAt = openAt;
+
+        const nowMs = now.getTime();
+        result.isOpen = nowMs >= openAt.getTime() && nowMs < scheduleEnd.getTime();
+        result.minutesUntilOpen = Math.max(0, Math.ceil((openAt.getTime() - nowMs) / 60000));
+        result.secondsLeftInWindow = result.isOpen
+            ? Math.max(0, Math.floor((scheduleEnd.getTime() - nowMs) / 1000))
+            : 0;
+
+        return result;
+    }
+
+    // v0.12: ставит/снимает body class в зависимости от того, открыто ли Bullet-окно.
+    // Класс перекрывает CSS-hide на .tsht-short / .ucc-blocked-tour-bullet
+    // (см. initLichessFilter addStyle). Также управляет dynamic minBaseTime для
+    // фильтра Bullet на chess.com и lichess. Идемпотентна, безопасна для частых вызовов.
+    function applyBulletWindowState() {
+        const cfg = CONFIG.bulletReward || {};
+        const bodyClass = cfg.bodyClass || 'ucc-bullet-window-open';
+        const body = document.body;
+        if (!body) return null;
+
+        const dateKey = formatDateKey();
+        const solved = readNumber(trackerKeys(dateKey).racerSolved, 0);
+        const reward = computeBulletReward(solved);
+
+        if (reward.isOpen) {
+            if (!body.classList.contains(bodyClass)) {
+                body.classList.add(bodyClass);
+            }
+        } else {
+            if (body.classList.contains(bodyClass)) {
+                body.classList.remove(bodyClass);
+            }
+        }
+        return reward;
+    }
+
     function ensureTimeOverlay() {
         if (RUNTIME.timeBlocker.overlay) return RUNTIME.timeBlocker.overlay;
         const overlay = document.createElement('div');
@@ -1245,6 +1405,10 @@
             const windows = getUnlockedWindowsForDate(now);
             const activeWindow = windows.find((windowItem) => currentMinutes >= windowItem.start && currentMinutes < windowItem.end) || null;
 
+            // v0.12: Bullet-окно тикает синхронно с проверкой расписания (каждые 10 сек),
+            // чтобы открыться/закрыться вовремя даже на страницах без progress-window heartbeat.
+            applyBulletWindowState();
+
             if (!activeWindow) {
                 const nextUnlock = getNextUnlockDate(now);
                 const message = nextUnlock
@@ -1302,18 +1466,25 @@
 
         windowEl = document.createElement('div');
         windowEl.id = 'ucc-progress-window';
+        // v0.12: добавлен блок Bullet (data-section="bullet"). Видимостью управляет updateProgressWindow.
         windowEl.innerHTML = `
             <div class="ucc-progress-title">Прогресс задач</div>
-            <div class="ucc-progress-row">Решено: <strong data-role="solved">0</strong></div>
-            <div class="ucc-progress-row">Цель: <strong data-role="target">0</strong></div>
-            <div class="ucc-progress-row">Осталось: <strong data-role="remaining">0</strong></div>
+            <div class="ucc-progress-row" data-role="tasks-solved-row">Решено: <strong data-role="solved">0</strong></div>
+            <div class="ucc-progress-row" data-role="tasks-target-row">Цель: <strong data-role="target">0</strong></div>
+            <div class="ucc-progress-row" data-role="tasks-remaining-row">Осталось: <strong data-role="remaining">0</strong></div>
+            <div class="ucc-bullet-section" data-section="bullet" style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25);display:none">
+                <div class="ucc-bullet-title" style="font-weight:bold;margin-bottom:4px">⚡ Bullet</div>
+                <div class="ucc-bullet-line" data-role="bullet-line">…</div>
+                <div class="ucc-bullet-sub" data-role="bullet-sub" style="margin-top:4px;font-size:13px;opacity:0.85"></div>
+            </div>
         `;
         windowEl.style.cssText = [
             'position:fixed',
             'top:72px',
             'right:18px',
             'z-index:2147483647',
-            'min-width:220px',
+            'min-width:240px',
+            'max-width:320px',
             'padding:14px 16px',
             'border-radius:14px',
             'background:rgba(24, 92, 168, 0.94)',
@@ -1325,29 +1496,111 @@
         return windowEl;
     }
 
+    // v0.12: форматирование секунд → "M:SS"
+    function formatSecondsAsClock(totalSeconds) {
+        const safe = Math.max(0, Math.floor(totalSeconds));
+        const m = Math.floor(safe / 60);
+        const s = safe % 60;
+        return `${m}:${s < 10 ? '0' + s : s}`;
+    }
+
+    // v0.12: формирует строку для блока Bullet в окне прогресса.
+    // Возвращает { line, sub, show } где line — основная фраза, sub — пояснение под ней.
+    function formatBulletStatus(bullet) {
+        if (!bullet || !bullet.enabled) {
+            return { show: false, line: '', sub: '' };
+        }
+        const closeStr = bullet.closeAt ? minutesToTimeString(getCurrentMinutes(bullet.closeAt)) : '';
+        const openStr = bullet.openAt ? minutesToTimeString(getCurrentMinutes(bullet.openAt)) : '';
+
+        if (bullet.isOpen) {
+            const left = formatSecondsAsClock(bullet.secondsLeftInWindow);
+            return {
+                show: true,
+                line: `Открыт сейчас · осталось ${left}`,
+                sub: `Окно закроется в ${closeStr} (конец сессии).`
+            };
+        }
+        if (bullet.eligible) {
+            const cap = bullet.capReached ? ' (максимум)' : '';
+            const sub = bullet.capReached
+                ? `Конец сессии: ${closeStr}.`
+                : `Реши ещё ${bullet.nextStepTasks} задач — окно увеличится до ${bullet.nextStepEarnedMinutes} мин.`;
+            return {
+                show: true,
+                line: `Доступен сегодня с ${openStr} до ${closeStr} (${bullet.earnedMinutes} мин${cap})`,
+                sub
+            };
+        }
+        // Не eligible — порог не достигнут
+        return {
+            show: true,
+            line: `Сейчас недоступен`,
+            sub: `До открытия окна (${bullet.threshold} задач) — ещё ${bullet.nextStepTasks} задач. Старт окна — ${bullet.nextStepEarnedMinutes} мин в конце дня.`
+        };
+    }
+
     function updateProgressWindow() {
         if (!CONFIG.modules.tracker || !CONFIG.tracker.showProgressWindow) return;
         const windowEl = createProgressWindow();
         if (!windowEl) return;
         const state = syncTrackerState(formatDateKey());
-        // v0.11: цель выполнена → окно полностью исчезает (а не просто меняет заголовок).
-        // Цель окна — мотивировать дорешать; когда дорешали, информация больше не нужна.
-        if (state.remaining === 0) {
+        const bullet = state.bullet || { enabled: false };
+        const bulletInfo = formatBulletStatus(bullet);
+
+        // v0.12: окно полностью скрывается ТОЛЬКО когда: цель выполнена И Bullet-блок неактивен/закрыт.
+        // Если Bullet включён и есть что показать (даже после выполнения цели) — окно остаётся.
+        const tasksDone = state.remaining === 0;
+        const showWindow = !tasksDone || bulletInfo.show;
+        if (!showWindow) {
             windowEl.style.display = 'none';
             return;
         }
         windowEl.style.display = '';
-        const solvedEl = windowEl.querySelector('[data-role="solved"]');
-        const targetEl = windowEl.querySelector('[data-role="target"]');
-        const remainingEl = windowEl.querySelector('[data-role="remaining"]');
-        if (solvedEl) solvedEl.textContent = String(state.solved);
-        if (targetEl) targetEl.textContent = String(state.target);
-        if (remainingEl) {
-            remainingEl.textContent = String(state.remaining);
-            remainingEl.style.color = '#ffe17e';
+
+        // Блок «задачи»: при tasksDone — скрываем 3 строки про задачи (но окно остаётся ради bullet).
+        const tasksRows = ['tasks-solved-row', 'tasks-target-row', 'tasks-remaining-row'];
+        tasksRows.forEach((role) => {
+            const row = windowEl.querySelector(`[data-role="${role}"]`);
+            if (row) row.style.display = tasksDone ? 'none' : '';
+        });
+        if (!tasksDone) {
+            const solvedEl = windowEl.querySelector('[data-role="solved"]');
+            const targetEl = windowEl.querySelector('[data-role="target"]');
+            const remainingEl = windowEl.querySelector('[data-role="remaining"]');
+            if (solvedEl) solvedEl.textContent = String(state.solved);
+            if (targetEl) targetEl.textContent = String(state.target);
+            if (remainingEl) {
+                remainingEl.textContent = String(state.remaining);
+                remainingEl.style.color = '#ffe17e';
+            }
         }
+
+        // Блок Bullet: 4 состояния (см. formatBulletStatus).
+        const bulletSection = windowEl.querySelector('[data-section="bullet"]');
+        if (bulletSection) {
+            if (bulletInfo.show) {
+                bulletSection.style.display = '';
+                const lineEl = bulletSection.querySelector('[data-role="bullet-line"]');
+                const subEl = bulletSection.querySelector('[data-role="bullet-sub"]');
+                if (lineEl) lineEl.textContent = bulletInfo.line;
+                if (subEl) subEl.textContent = bulletInfo.sub;
+                bulletSection.style.borderTopColor = tasksDone ? 'transparent' : 'rgba(255,255,255,0.25)';
+                bulletSection.style.marginTop = tasksDone ? '0' : '12px';
+                bulletSection.style.paddingTop = tasksDone ? '0' : '10px';
+            } else {
+                bulletSection.style.display = 'none';
+            }
+        }
+
+        // v0.12: синхронизируем body class с фактическим состоянием Bullet-окна.
+        // Это разблокирует .tsht-short на /tournament и .ucc-blocked-tour-bullet когда окно открыто.
+        applyBulletWindowState();
+
         const titleEl = windowEl.querySelector('.ucc-progress-title');
-        if (titleEl) titleEl.textContent = 'Прогресс задач';
+        if (titleEl) {
+            titleEl.textContent = tasksDone ? 'Цель выполнена ✅' : 'Прогресс задач';
+        }
     }
 
     function ensureProgressHeartbeat() {
@@ -1623,7 +1876,6 @@
         // + v0.8: модалка /play/computer (no-timer, variant dropdown)
         const baseSelectors = [
             ...cfg.staticHideSelectors,
-            ng.bulletSection,
             ng.dailySection,
             ng.customGameToggle,
             ng.customGameButton,
@@ -1632,9 +1884,27 @@
             pc.variantDropdown
         ].filter(Boolean);
         addStyle(baseSelectors.map((sel) => `${sel} { display: none !important; }`).join('\n'));
+        // v0.12: bulletSection скрыта по умолчанию, но раскрывается при body.ucc-bullet-window-open.
+        if (ng.bulletSection) {
+            addStyle(`
+                ${ng.bulletSection} { display: none !important; }
+                body.ucc-bullet-window-open ${ng.bulletSection} { display: revert !important; }
+            `);
+        }
 
-        const minMinutes = Math.floor((cfg.minBaseTimeSeconds || 180) / 60);
+        const baseMinMinutes = Math.floor((cfg.minBaseTimeSeconds || 180) / 60);
         const blockedTimeLabelSet = new Set((cfg.blockedTimeLabels || []).map((s) => s.trim()));
+
+        // v0.12: динамический эффективный минимум для chess.com.
+        // При открытом Bullet-окне снижается до 1 минуты (1+0 разрешён).
+        function getEffectiveMinMinutesChessCom() {
+            const bullet = applyBulletWindowState();
+            if (bullet && bullet.isOpen) {
+                const seconds = (CONFIG.bulletReward && CONFIG.bulletReward.minBulletSeconds) || 60;
+                return Math.max(1, Math.floor(seconds / 60));
+            }
+            return baseMinMinutes;
+        }
 
         // v0.11: автопереключение времени, если chess.com помнит Bullet как последний выбор.
         // На /play/online dropdown сверху может показывать «1 мин. (Пуля)» по дефолту — это
@@ -1642,14 +1912,19 @@
         // остаётся Bullet → guardPlayButton при клике даст alert. Лучше сразу программно
         // кликнуть на разрешённую кнопку (3|2 Blitz / 5 мин / 10 мин), чтобы dropdown показал
         // нормальное время. Один раз при появлении модалки.
+        // v0.12: при открытом Bullet-окне Bullet-выбор НЕ переключается — оставляем как есть.
         const autoSwitchFromBullet = () => {
             const labelEl = document.querySelector(ng.topTimeDropdownLabel);
             if (!labelEl) return;
             // dataset-флаг чтобы не дёргать клик в каждом applyRules-цикле
             if (labelEl.dataset.uccAutoSwitched === '1') return;
+            const effMin = getEffectiveMinMinutesChessCom();
             const label = (labelEl.textContent || '').trim();
             const minutes = parseChessComTimeLabel(label);
-            const isBlocked = /Пуля|Bullet|день|дн[еяёй]/i.test(label) || minutes === null || minutes < minMinutes;
+            // Если Bullet-окно открыто и минимум стал 1 — не блокируем «Пуля 1+0».
+            const bulletAllowed = effMin <= 1;
+            const isBlockedKeyword = /день|дн[еяёй]/i.test(label) || (!bulletAllowed && /Пуля|Bullet/i.test(label));
+            const isBlocked = isBlockedKeyword || minutes === null || minutes < effMin;
             if (!isBlocked) {
                 labelEl.dataset.uccAutoSwitched = '1';
                 return;
@@ -1672,18 +1947,24 @@
         };
 
         // Перехват клика по кнопке "Начать партию" — если выбран Bullet/Daily, не пускаем.
+        // v0.12: при открытом Bullet-окне 1+0 разрешён.
         const guardPlayButton = () => {
             const btn = document.querySelector(ng.playButton);
             if (!btn || btn.dataset.uccPlayGuard === '1') return;
             btn.dataset.uccPlayGuard = '1';
             btn.addEventListener('click', (event) => {
+                const effMin = getEffectiveMinMinutesChessCom();
                 const label = (document.querySelector(ng.topTimeDropdownLabel)?.textContent || '').trim();
                 const minutes = parseChessComTimeLabel(label);
-                const isBlockedKeyword = /Пуля|Bullet|день|дн[еяёй]/i.test(label);
-                if (isBlockedKeyword || minutes === null || minutes < minMinutes) {
+                const bulletAllowed = effMin <= 1;
+                const isBlockedKeyword = /день|дн[еяёй]/i.test(label) || (!bulletAllowed && /Пуля|Bullet/i.test(label));
+                if (isBlockedKeyword || minutes === null || minutes < effMin) {
                     event.preventDefault();
                     event.stopImmediatePropagation();
-                    window.alert(`Можно играть только Блиц от ${minMinutes}+0, Рапид и Классику.\nВыберите контроль 3 мин. или больше.`);
+                    const bulletNote = effMin < baseMinMinutes
+                        ? '\n(Bullet-окно открыто — разрешён 1 мин.)'
+                        : '';
+                    window.alert(`Можно играть только Блиц от ${effMin}+0, Рапид и Классику.\nВыберите контроль ${effMin} мин. или больше.${bulletNote}`);
                 }
             }, true);
         };
@@ -1709,19 +1990,35 @@
         };
 
         // Скрываем приходящие вызовы (incoming challenges) с короткими/long контролями
+        // v0.12: при открытом Bullet-окне Bullet-вызовы НЕ скрываются.
         const filterIncomingChallenges = () => {
+            const effMin = getEffectiveMinMinutesChessCom();
+            const bulletAllowed = effMin <= 1;
             document.querySelectorAll(ng.incomingChallenge).forEach((card) => {
                 const tcText = (card.querySelector('.incoming-challenges-timeclass')?.textContent || '').trim();
                 const minutes = parseChessComTimeLabel(tcText);
-                const isBlockedKeyword = /Пуля|Bullet|день|дн[еяёй]/i.test(tcText);
-                if (isBlockedKeyword || minutes === null || minutes < minMinutes) {
+                const isBlockedKeyword = /день|дн[еяёй]/i.test(tcText) || (!bulletAllowed && /Пуля|Bullet/i.test(tcText));
+                if (isBlockedKeyword || minutes === null || minutes < effMin) {
                     safeHide(card);
                 }
             });
         };
 
         // Фильтр строк турниров на /play/online/tournaments
+        // v0.12: при открытом Bullet-окне Bullet-турниры НЕ скрываются (минимум падает до 1 мин,
+        // ключевые слова Bullet/Пуля и блок-glyph пропускают).
         const filterTournamentRows = () => {
+            const effMin = getEffectiveMinMinutesChessCom();
+            const bulletAllowed = effMin <= 1;
+            const blockedGlyphs = bulletAllowed
+                ? cfg.blockedGlyphs.filter((g) => g !== 'game-time-bullet')
+                : cfg.blockedGlyphs;
+            const blockedKeywords = bulletAllowed
+                ? cfg.blockedTournamentKeywords.filter((k) => !/^(Bullet|Пуля)$/i.test(k))
+                : cfg.blockedTournamentKeywords;
+            const blockedTimeLabels = bulletAllowed
+                ? new Set([...blockedTimeLabelSet].filter((t) => !/1\s*(мин|min|\|)/i.test(t)))
+                : blockedTimeLabelSet;
             document.querySelectorAll('.tournaments-list-item-component').forEach((row) => {
                 const text = (row.innerText || row.textContent || '').trim();
                 const eventLabel = (row.querySelector('.tournaments-list-item-event-label')?.textContent || '').trim();
@@ -1731,17 +2028,17 @@
                 const altText = (row.querySelector('.tournaments-list-item-iconGlyph img')?.getAttribute('alt') || '').trim();
 
                 // 1. По иконке (надёжно для не-кастомных турниров)
-                if (cfg.blockedGlyphs.includes(iconGlyph)) { safeHide(row); return; }
+                if (blockedGlyphs.includes(iconGlyph)) { safeHide(row); return; }
                 // 2. По ключевым словам в названии / alt
                 const checkText = `${eventLabel} ${altText}`;
-                if (cfg.blockedTournamentKeywords.some((kw) => new RegExp(kw, 'i').test(checkText))) { safeHide(row); return; }
+                if (blockedKeywords.some((kw) => new RegExp(kw, 'i').test(checkText))) { safeHide(row); return; }
                 // 3. По подписи контроля времени
-                if (blockedTimeLabelSet.has(timeLabelText)) { safeHide(row); return; }
+                if (blockedTimeLabels.has(timeLabelText)) { safeHide(row); return; }
                 const minutes = parseChessComTimeLabel(timeLabelText);
                 if (minutes === null) { safeHide(row); return; } // correspondence или непарсимо
-                if (minutes < minMinutes) { safeHide(row); return; }
+                if (minutes < effMin) { safeHide(row); return; }
                 // 4. Старый legacy-keyword по innerText (на всякий случай)
-                if (cfg.blockedTournamentKeywords.some((kw) => new RegExp(kw, 'i').test(text))) {
+                if (blockedKeywords.some((kw) => new RegExp(kw, 'i').test(text))) {
                     safeHide(row);
                 }
             });
@@ -1751,9 +2048,15 @@
             if (!CONFIG.modules.chessComFilter) return;
             filterTournamentRows();
             // legacy: section labels (Заочные, Пуля, Последние)
+            // v0.12: при открытом Bullet-окне «Пуля» секция остаётся видимой.
+            const effMin = getEffectiveMinMinutesChessCom();
+            const bulletAllowed = effMin <= 1;
+            const sectionLabelsToHide = bulletAllowed
+                ? cfg.blockedSectionLabels.filter((l) => !/^Пуля$/i.test(l))
+                : cfg.blockedSectionLabels;
             document.querySelectorAll('.time-selector-section-component, .recent-time-section-component').forEach((section) => {
                 const label = section.querySelector('.time-selector-section-label, .recent-time-section-label');
-                if (label && cfg.blockedSectionLabels.includes(label.textContent.trim())) {
+                if (label && sectionLabelsToHide.includes(label.textContent.trim())) {
                     safeHide(section);
                 }
             });
@@ -1791,7 +2094,14 @@
             .tour-chart__inner a.tsht.tsht-variant,
             a.tsht.tsht-short,
             a.tsht.tsht-variant,
-            .ucc-blocked-tour { display: none !important; }
+            .ucc-blocked-tour,
+            .ucc-blocked-tour-bullet { display: none !important; }
+            /* v0.12: Bullet-окно открыто → перекрываем default-hide для .tsht-short и .ucc-blocked-tour-bullet
+               (короткий контроль ≥1+0). .tsht-variant остаётся скрытым ВСЕГДА (Atomic/Crazyhouse/960 — варианты).
+               .ucc-blocked-tour остаётся скрытым ВСЕГДА (UltraBullet ¼+0 / ½+0 / кастомные ниже минимума). */
+            body.ucc-bullet-window-open .tour-chart__inner a.tsht.tsht-short,
+            body.ucc-bullet-window-open a.tsht.tsht-short,
+            body.ucc-bullet-window-open .ucc-blocked-tour-bullet { display: revert !important; }
             /* v0.11.1: публичный чат «Чат для зрителей» на партиях/наблюдении.
                <section class="mchat"> содержит ленту чужих сообщений с user-link на профили
                и input «Будьте вежливы в чате!» — соцсоставляющая, скрываем целиком. */
@@ -1833,7 +2143,18 @@
         }, true);
 
         const lichessCfg = CONFIG.lichess;
-        const minMinutes = lichessCfg.minBaseMinutes || 3;
+        const baseMinMinutes = lichessCfg.minBaseMinutes || 3;
+        // v0.12: динамический эффективный минимум.
+        // Когда Bullet-окно открыто — 1 минута (Bullet 1+0 / 2+1 разрешены).
+        // UltraBullet (¼+0, ½+0, ¾+0) НЕ разрешён никогда — там всегда base ≥ 1.
+        function getEffectiveMinMinutes() {
+            const bullet = applyBulletWindowState();
+            if (bullet && bullet.isOpen) {
+                const seconds = (CONFIG.bulletReward && CONFIG.bulletReward.minBulletSeconds) || 60;
+                return Math.max(1, Math.floor(seconds / 60));
+            }
+            return baseMinMinutes;
+        }
 
         function textHasAllowedType(text) {
             if (!text) return false;
@@ -1872,11 +2193,15 @@
         // v0.8.2: класс вместо inline-style — Vue при пересоздании DOM-узла сохраняет классы.
         function filterTournamentCards() {
             const tCfg = lichessCfg.tournamentCardClasses;
+            // v0.12: при открытом Bullet-окне base 1+ открывается через body.ucc-bullet-window-open.
+            // UltraBullet (<1 мин) остаётся блокирован всегда — отдельный класс .ucc-blocked-tour
+            // (CSS rule на этот класс не подменяется body-class). Bullet (1-2 мин) → .ucc-blocked-tour-bullet.
             document.querySelectorAll('.tour-chart__inner a.tsht, a.tsht').forEach((card) => {
                 // Cases 1 и 2 (tsht-variant / tsht-short) уже скрыты CSS-rule, JS им не нужен.
                 if (card.classList.contains(tCfg.variant)) return;
                 if (card.classList.contains(tCfg.short)) return;
-                if (card.classList.contains('ucc-blocked-tour')) return; // уже отметили
+                if (card.classList.contains('ucc-blocked-tour')) return; // UltraBullet — навсегда
+                if (card.classList.contains('ucc-blocked-tour-bullet')) return; // Bullet — открывается окном
                 const text = (card.querySelector(tCfg.textInfo)?.textContent || '').trim();
                 const minutes = parseLichessTimeFormat(text);
                 if (minutes === null) {
@@ -1886,7 +2211,13 @@
                     if (!textHasAllowedType(fullText)) card.classList.add('ucc-blocked-tour');
                     return;
                 }
-                if (minutes < minMinutes) card.classList.add('ucc-blocked-tour');
+                if (minutes < 1) {
+                    // UltraBullet (¼+0, ½+0, ¾+0) — никогда не открываем
+                    card.classList.add('ucc-blocked-tour');
+                } else if (minutes < baseMinMinutes) {
+                    // Bullet (1+0, 2+1) — открывается Bullet-окном через body class
+                    card.classList.add('ucc-blocked-tour-bullet');
+                }
             });
         }
 
@@ -1920,11 +2251,12 @@
                 try { allowedTabBtn.click(); } catch (err) { log('auto-switch clock tab failed', err); }
             }
 
-            // Скрываем пресеты <minMinutes (1+0, 2+1)
+            // Скрываем пресеты <effectiveMinMinutes (1+0, 2+1) — но при открытом Bullet-окне 1+0 разрешён
+            const effMin = getEffectiveMinMinutes();
             modal.querySelectorAll(h.presetButtons).forEach((btn) => {
                 const t = (btn.textContent || '').trim();
                 const minutes = parseLichessTimeFormat(t);
-                if (minutes !== null && minutes < minMinutes) safeHide(btn);
+                if (minutes !== null && minutes < effMin) safeHide(btn);
             });
 
             // Перехват submit-кнопок (--hook / --ai / --friend) внутри модалки.
@@ -1949,10 +2281,14 @@
                     if (valueText === '¼') minutes = 0.25;
                     else if (valueText === '½') minutes = 0.5;
                     else if (valueText === '¾') minutes = 0.75;
-                    if (Number.isNaN(minutes) || minutes < minMinutes) {
+                    const effMinSubmit = getEffectiveMinMinutes();
+                    if (Number.isNaN(minutes) || minutes < effMinSubmit) {
                         event.preventDefault();
                         event.stopImmediatePropagation();
-                        window.alert(`Можно играть только Блиц от ${minMinutes}+0, Рапид и Классику.\nВыберите минут на партию ≥ ${minMinutes}, вкладка «По часам».`);
+                        const bulletNote = effMinSubmit < baseMinMinutes
+                            ? '\n(Bullet-окно открыто — разрешён 1+0.)'
+                            : '';
+                        window.alert(`Можно играть только Блиц от ${effMinSubmit}+0, Рапид и Классику.\nВыберите минут на партию ≥ ${effMinSubmit}, вкладка «По часам».${bulletNote}`);
                     }
                 }, true);
             });
@@ -1976,9 +2312,11 @@
             if (!gameTypeText) return;
 
             // Если на странице есть .tour__meta__head с форматом X+Y — проверяем X.
+            // v0.12: при открытом Bullet-окне minMinutes динамически снижается до 1.
             const tourMinutes = parseLichessTimeFormat(gameTypeText);
+            const effMin = getEffectiveMinMinutes();
             if (tourMinutes !== null) {
-                if (tourMinutes >= minMinutes && textHasAllowedType(gameTypeText)) return;
+                if (tourMinutes >= effMin && textHasAllowedType(gameTypeText)) return;
             } else if (textHasAllowedType(gameTypeText)) {
                 return;
             }
