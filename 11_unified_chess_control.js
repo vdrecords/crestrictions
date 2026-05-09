@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.8.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.8: /play/computer без-таймера + variant dropdown скрыты, guard на bot CTA, /study lichess в block, /insights/<other-user> в block, /other chess.com в block
+// @version      0.8.1
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.8: /play/computer без-таймера + variant dropdown скрыты, guard на bot CTA, /study lichess в block, /insights/<other-user> в block, /other chess.com в block. v0.8.1: разовый override 2026-05-09 утреннее окно до 13:00
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -201,6 +201,9 @@
                 '2025-12-23': { // В этот день особое раннее открытие и длинное окно
                     patch: [{ index: 1, from: '16:00' }], // Второе окно начинается в 16:00
                     extra: [['00:00', '21:00']] // Дополнительное окно с полуночи до 21:00
+                },
+                '2026-05-09': { // Разовое продление утреннего окна до 13:00 (Vladimir 2026-05-09)
+                    patch: [{ index: 0, to: '13:00' }] // 09:00–12:00 → 09:00–13:00
                 }
             }
         },

@@ -2,7 +2,7 @@
 
 Tampermonkey-userscript: ребёнок может тренировать **задачи** + играть только **Блиц (от 3+0) / Рапид / Классику**. Всё остальное — Bullet, варианты шахмат (Chess960, Crazyhouse, Atomic, etc.), correspondence, соцка (форумы, клубы, переписка) — заблокировано двумя слоями: path-whitelist + DOM/CSS-фильтр.
 
-**Версия:** см. `@version` в `cc.user.js` (актуально 0.8.0).
+**Версия:** см. `@version` в `cc.user.js` (актуально 0.8.1).
 
 ---
 
@@ -121,6 +121,7 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 
 ## История
 
+- **0.8.1** (2026-05-09) — разовый override расписания: `dateOverrides['2026-05-09'] = { patch: [{ index: 0, to: '13:00' }] }`. Утреннее окно сегодня `09:00-13:00` вместо `09:00-12:00`. Вечернее окно `18:00-20:00` без изменений. Использован существующий механизм `dateOverrides` (там же шаблоны для 2025-11-16 и 2025-12-23)
 - **0.8.0** (2026-05-09) — `/play/computer` усиление + блок UGC и чужих профилей. **Path-policy**: chess.com `/other` (sidebar) и `/insights/<username>` (чужие творческие профили — Hikaru/GothamChess) добавлены в block; lichess `/study` целиком в block (UGC-раздел: создание/поиск/листание чужих studies с автором, лайками, комментариями). **chessComFilter**: новые селекторы `playComputerSelectors` — `.mode-selection-container-no-timer-button` (играть бота без часов), `[data-cy="variant-dropdown-button"]` (выбор 960/Crazyhouse/Atomic) — оба скрыты CSS на /play/computer. Defense-in-depth `guardBotCtaButton` на `[data-cy="bot-selection-cta-button"]`: проверяет что вариант остался Стандарт/Классика, иначе alert. Curl-verified: `/other` (200), `/insights/hikaru` (200), `/study` (200), `/study/<id>` (200) — все живые
 - **0.7.0** (2026-05-09) — блокировка logout / удаления аккаунта на обоих сайтах. Path-policy: `/logout` (chess.com и lichess), `/account/close`/`/account/delete` (lichess), `/settings/close*` (chess.com через blockRegex). CSS+DOM-walker: `initAccountControlHider()` инжектит селекторы по `href`/`action` (`a[href$="/logout"]`, `form[action*="/logout"]`, `a[href*="/account/close"]`) + MutationObserver обходит a/button/menuitem на тексты «Выйти», «Logout», «Sign out», «Закрыть аккаунт», «Удалить аккаунт», «Close account», «Delete account» и скрывает их (включая родительский `<li>` / `.dropdown-item`). Цель: родитель один раз залогинил — ребёнок не должен случайно или намеренно разлогиниться/удалить профиль. Curl-verified: `/logout` (302→/), `/settings/close-account` (200), `/account/close` (200), `/account/delete` (200), `/auth/logout` (404 — не существует), `/settings/close` (404 — только `close-account`)
 - **0.6.0** (2026-05-09) — fix false-block для встроенных тренажёров lichess: `/training/coordinate` (Координаты), `/training/daily` (Задача дня), `/training/dashboard/<rating>` (Панель задач) добавлены в `isAllowedTrainingPath`. Удалён фантомный `/coordinate` из allow chess.com (404 на голом /coordinate, реальный URL — только `/training/coordinate`)
