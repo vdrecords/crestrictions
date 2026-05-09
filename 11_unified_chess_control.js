@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.11.1
+// @version      0.11.2
 // @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.9: USER SETTINGS блок. v0.10: автоCSS-скрытие block-путей. v0.11: окно цели исчезает по completed + автопереключение Bullet→Blitz на /play/online. v0.11.1: скрытие публичного чата на lichess (.mchat — Чат для зрителей)
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
@@ -69,7 +69,8 @@
 
     // Разовые цели по конкретным датам (формат YYYY-MM-DD: число).
     const TASK_TARGETS_SPECIAL = {
-        '2025-12-19': 200
+        '2025-12-19': 200,
+        '2026-05-09': 50  // Разовая цель на сегодня (суббота, обычно 1000)
     };
 
     // ─── 4. МИНИМАЛЬНЫЙ КОНТРОЛЬ ВРЕМЕНИ ─────────────────────────────────────
