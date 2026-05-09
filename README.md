@@ -2,7 +2,7 @@
 
 Tampermonkey-userscript: ребёнок может тренировать **задачи** + играть только **Блиц (от 3+0) / Рапид / Классику**. Всё остальное — Bullet, варианты шахмат (Chess960, Crazyhouse, Atomic, etc.), correspondence, соцка (форумы, клубы, переписка) — заблокировано двумя слоями: path-whitelist + DOM/CSS-фильтр.
 
-**Версия:** см. `@version` в `cc.user.js` (актуально 0.8.2).
+**Версия:** см. `@version` в `cc.user.js` (актуально 0.9.0).
 
 ---
 
@@ -121,6 +121,7 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 
 ## История
 
+- **0.9.0** (2026-05-09) — структурный рефактор: верх файла теперь `USER SETTINGS` блок (8 секций), ниже — технический `LOCAL_CONFIG`. Родитель крутит расписание / дневные цели / минимум секунд / override-дни / даты отключения lichess / модули / быстрые ссылки в первых ~80 строках, без погружения в DOM-селекторы. Значения 1-в-1 совпадают с pre-refactor (16 ключевых полей проверены через node-репро). `lichess.minBaseMinutes` теперь авто-зеркало `MIN_BASE_TIME_SECONDS / 60` — править минимум в одном месте достаточно
 - **0.8.2** (2026-05-09) — fix мигания карточек турниров на `lichess.org/tournament`. Корень: `safeHide()` ставил inline-style `display:none`, который Vue теряет при rerender (обновление participant count, прогресс-баров) → между уничтожением старого узла и пометкой нового через MutationObserver карточка успевала появиться видимой. Решение: (1) статичный CSS-rule `.tour-chart__inner a.tsht.tsht-short, a.tsht.tsht-variant { display: none !important; }` — Bullet/UltraBullet/HyperBullet/Atomic/Crazyhouse/960 скрываются на CSS-уровне, rerender им не страшен; (2) для custom-турниров с произвольным `X+Y` контролем — class-based hide через `.ucc-blocked-tour { display: none !important; }` (устойчив к замене узла, т.к. Vue класс сохраняет даже при пересоздании). JS-фильтр в `filterTournamentCards()` переписан с `safeHide(card)` на `card.classList.add('ucc-blocked-tour')`
 - **0.8.1** (2026-05-09) — разовый override расписания: `dateOverrides['2026-05-09'] = { patch: [{ index: 0, to: '13:00' }] }`. Утреннее окно сегодня `09:00-13:00` вместо `09:00-12:00`. Вечернее окно `18:00-20:00` без изменений. Использован существующий механизм `dateOverrides` (там же шаблоны для 2025-11-16 и 2025-12-23)
 - **0.8.0** (2026-05-09) — `/play/computer` усиление + блок UGC и чужих профилей. **Path-policy**: chess.com `/other` (sidebar) и `/insights/<username>` (чужие творческие профили — Hikaru/GothamChess) добавлены в block; lichess `/study` целиком в block (UGC-раздел: создание/поиск/листание чужих studies с автором, лайками, комментариями). **chessComFilter**: новые селекторы `playComputerSelectors` — `.mode-selection-container-no-timer-button` (играть бота без часов), `[data-cy="variant-dropdown-button"]` (выбор 960/Crazyhouse/Atomic) — оба скрыты CSS на /play/computer. Defense-in-depth `guardBotCtaButton` на `[data-cy="bot-selection-cta-button"]`: проверяет что вариант остался Стандарт/Классика, иначе alert. Curl-verified: `/other` (200), `/insights/hikaru` (200), `/study` (200), `/study/<id>` (200) — все живые

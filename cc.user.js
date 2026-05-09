@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.8.2
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.8: /play/computer без-таймера + variant dropdown скрыты, guard на bot CTA, /study lichess в block, /insights/<other-user> в block, /other chess.com в block. v0.8.1: разовый override 2026-05-09 утреннее окно до 13:00. v0.8.2: fix мигания турниров lichess /tournament — CSS-rule на .tsht-short/.tsht-variant + class-based hide устойчивый к Vue rerender
+// @version      0.9.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.9: рефактор начала файла — все «родительские» крутилки (расписание, цели, минимум секунд, override-дни) вынесены в верхний USER SETTINGS блок, технический LOCAL_CONFIG ниже
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -22,17 +22,98 @@
 (function () {
     'use strict';
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // 🟢 НАСТРОЙКИ ДЛЯ РОДИТЕЛЯ
+    // Здесь лежит всё, что обычно меняют руками: расписание, дневные цели,
+    // минимальный контроль времени, разовые исключения. Технические DOM-
+    // селекторы и regex — ниже в LOCAL_CONFIG, их трогать не нужно.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // ─── 1. РАСПИСАНИЕ ОКОН ──────────────────────────────────────────────────
+    // Когда ребёнку разрешено играть. Дни недели: 0=Воскресенье ... 6=Суббота.
+    // Каждое окно — пара ['HH:MM', 'HH:MM']. Окна можно как добавлять, так
+    // и убирать. Вне окон — overlay блокировки.
+    const SCHEDULE_WEEKLY = {
+        0: [['09:00', '12:00'], ['18:00', '20:00']], // Воскресенье
+        1: [['09:00', '12:00'], ['18:00', '20:00']], // Понедельник
+        2: [['09:00', '12:00'], ['18:00', '20:00']], // Вторник
+        3: [['09:00', '12:00'], ['18:00', '20:00']], // Среда
+        4: [['09:00', '12:00'], ['18:00', '20:00']], // Четверг
+        5: [['09:00', '12:00'], ['18:00', '20:00']], // Пятница
+        6: [['09:00', '12:00'], ['18:00', '20:00']]  // Суббота
+    };
+
+    // ─── 2. РАЗОВЫЕ ПРАВКИ РАСПИСАНИЯ ────────────────────────────────────────
+    // По дате (формат YYYY-MM-DD): patch меняет существующее окно по индексу,
+    // extra добавляет дополнительное окно к этому дню.
+    const SCHEDULE_OVERRIDES = {
+        '2025-11-16': { // Продлеваем первое окно
+            patch: [{ index: 0, to: '14:00' }]
+        },
+        '2025-12-23': { // Особое раннее открытие + длинное окно
+            patch: [{ index: 1, from: '16:00' }],
+            extra: [['00:00', '21:00']]
+        },
+        '2026-05-09': { // Разовое продление утреннего окна до 13:00
+            patch: [{ index: 0, to: '13:00' }]
+        }
+    };
+
+    // За сколько минут до конца окна показывать предупреждение «скоро блок».
+    const SCHEDULE_WARNING_MINUTES = 20;
+
+    // ─── 3. ДНЕВНЫЕ ЦЕЛИ ЗАДАЧ ───────────────────────────────────────────────
+    // Сколько задач Lichess Racer надо решить, чтобы разблокировать игру.
+    // Индексы по дням недели: [Пн, Вт, Ср, Чт, Пт, Сб, Вс].
+    const TASK_TARGETS_WEEKLY = [100, 100, 100, 300, 100, 1000, 1000];
+
+    // Разовые цели по конкретным датам (формат YYYY-MM-DD: число).
+    const TASK_TARGETS_SPECIAL = {
+        '2025-12-19': 200
+    };
+
+    // ─── 4. МИНИМАЛЬНЫЙ КОНТРОЛЬ ВРЕМЕНИ ─────────────────────────────────────
+    // Всё короче этого — Bullet/UltraBullet → блок. 180 = 3 минуты (Блиц 3+0).
+    // Применяется и к chess.com, и к lichess (lichess пересчитывается в минуты).
+    const MIN_BASE_TIME_SECONDS = 180;
+
+    // ─── 5. ДАТЫ ОТКЛЮЧЕНИЯ ФИЛЬТРА LICHESS ──────────────────────────────────
+    // В эти дни (формат YYYY-MM-DD) фильтр lichess полностью выключен —
+    // например, чтобы можно было сыграть «турнирный день» с любыми контролями.
+    const LICHESS_DISABLED_DATES = ['2025-11-16'];
+
+    // ─── 6. МОДУЛИ (можно по одному отключать) ───────────────────────────────
+    const MODULES_ENABLED = {
+        urlBlocker: true,      // Общий блокировщик доменов и path
+        timeBlocker: true,     // Блокировка по расписанию
+        tracker: true,         // Трекер задач + редирект на Racer
+        chessComFilter: true,  // Фильтр Chess.com (модалки, турниры)
+        lichessFilter: true,   // Фильтр Lichess (модалки, турниры)
+        messageControl: true   // Ограничение сообщений (LEGACY)
+    };
+
+    // ─── 7. БЫСТРЫЕ ССЫЛКИ ──────────────────────────────────────────────────
+    // Кнопки на overlay блокировки — куда можно перейти ребёнку.
+    const QUICK_LINKS = [
+        ['Chess.com — Задачи', 'https://www.chess.com/puzzles'],
+        ['Lichess — Задачи', 'https://lichess.org/training'],
+        ['Lichess — Racer', 'https://lichess.org/racer']
+    ];
+
+    // ─── 8. ПРОЧИЕ TUNABLE ОПЦИИ ─────────────────────────────────────────────
+    const SHOW_PROGRESS_WINDOW = true;          // Плавающее окно прогресса задач
+    const ENABLE_CHESSCOM_PUZZLES_MODE = true;  // Считать chess.com /puzzles в прогресс
+    const TASKS_PER_MESSAGE = 10;               // Сколько задач = 1 сообщение (LEGACY)
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // 🔧 ТЕХНИЧЕСКАЯ КОНФИГУРАЦИЯ (DOM-селекторы, regex, паттерны URL)
+    // НЕ ТРОГАТЬ без знания DOM сайтов — изменения здесь могут сломать фильтр.
+    // ═════════════════════════════════════════════════════════════════════════
+
     const LOCAL_CONFIG = {
         debug: false, // Включить подробные сообщения в консоли
 
-        modules: {
-            urlBlocker: true, // Включить общий блокировщик доменов
-            timeBlocker: true, // Включить блокировку по расписанию
-            tracker: true, // Включить трекер задач и редиректы
-            chessComFilter: true, // Включить фильтр Chess.com
-            lichessFilter: true, // Включить фильтр Lichess
-            messageControl: true // Включить ограничение сообщений
-        },
+        modules: MODULES_ENABLED,
 
         storage: {
             courseId: 72, // Общий ID курса для GM-ключей
@@ -68,11 +149,7 @@
                 'chess.com',
                 'lichess.org'
             ],
-            quickLinks: [ // Быстрые ссылки на основные разрешённые сайты
-                ['Chess.com — Задачи', 'https://www.chess.com/puzzles'],
-                ['Lichess — Задачи', 'https://lichess.org/training'],
-                ['Lichess — Racer', 'https://lichess.org/racer']
-            ],
+            quickLinks: QUICK_LINKS,
             // Path-whitelist: внутри разрешённых хостов фильтруем по разделам.
             // Логика: сначала проверяется blockRegex (приоритет), затем allow (точные + префиксы + regex).
             // Что не попало ни в один список — БЛОКИРУЕТСЯ (default-deny).
@@ -183,48 +260,26 @@
         },
 
         timeBlocker: {
-            warningMinutes: 20, // За сколько минут показывать предупреждение до блокировки
+            warningMinutes: SCHEDULE_WARNING_MINUTES,
             pollIntervalMs: 10000, // Как часто делать резервную проверку времени
-            weeklyUnlocked: { // Окна разблокировки по дням недели: 0=воскресенье ... 6=суббота
-                0: [['09:00', '12:00'], ['18:00', '20:00']], // Воскресенье
-                1: [['09:00', '12:00'], ['18:00', '20:00']], // Понедельник
-                2: [['09:00', '12:00'], ['18:00', '20:00']], // Вторник
-                3: [['09:00', '12:00'], ['18:00', '20:00']], // Среда
-                4: [['09:00', '12:00'], ['18:00', '20:00']], // Четверг
-                5: [['09:00', '12:00'], ['18:00', '20:00']], // Пятница
-                6: [['09:00', '12:00'], ['18:00', '20:00']] // Суббота
-            },
-            dateOverrides: { // Разовые исключения по датам
-                '2025-11-16': { // В этот день продлевается первое окно
-                    patch: [{ index: 0, to: '14:00' }] // Изменить первое окно до 14:00
-                },
-                '2025-12-23': { // В этот день особое раннее открытие и длинное окно
-                    patch: [{ index: 1, from: '16:00' }], // Второе окно начинается в 16:00
-                    extra: [['00:00', '21:00']] // Дополнительное окно с полуночи до 21:00
-                },
-                '2026-05-09': { // Разовое продление утреннего окна до 13:00 (Vladimir 2026-05-09)
-                    patch: [{ index: 0, to: '13:00' }] // 09:00–12:00 → 09:00–13:00
-                }
-            }
+            weeklyUnlocked: SCHEDULE_WEEKLY,
+            dateOverrides: SCHEDULE_OVERRIDES
         },
 
         tracker: {
-            weeklyTargets: [100, 100, 100, 300, 100, 1000, 1000], // Дневные цели по задачам: Пн..Вс (Vladimir 2026-05-09)
-            specialTargets: { // Разовые цели по датам
-                '2025-12-19': 200 // Особая цель на 19.12.2025
-            },
+            weeklyTargets: TASK_TARGETS_WEEKLY,
+            specialTargets: TASK_TARGETS_SPECIAL,
             activeSources: ['lichess'], // Источники задач, которые учитываются в прогрессе
             preferredSource: 'lichess', // Куда редиректить по умолчанию до выполнения цели
-            enableChessComPuzzlesMode: true, // Разрешать раздел puzzles на Chess.com
+            enableChessComPuzzlesMode: ENABLE_CHESSCOM_PUZZLES_MODE,
             chessComPuzzlesRoot: '/puzzles', // Корневой путь puzzles на Chess.com
-            showProgressWindow: true, // Показывать плавающее окно прогресса
+            showProgressWindow: SHOW_PROGRESS_WINDOW,
             processedRaceKeepDays: 7 // Сколько дней хранить отметки обработанных гонок
         },
 
         chessCom: {
-            // Минимальный контроль времени в секундах (всё короче — Bullet, блок).
-            // 180 = 3 минуты. Vladimir 2026-05-09: «Блиц от 3+0, всё что ниже — блок».
-            minBaseTimeSeconds: 180,
+            // Минимальный контроль времени в секундах — берётся из USER_SETTINGS наверху.
+            minBaseTimeSeconds: MIN_BASE_TIME_SECONDS,
             // Иконки на /play/online/tournaments, всегда блокируем (вне Blitz/Rapid/Classical)
             blockedGlyphs: ['game-time-bullet', 'game-type-960-live', 'game-time-daily'],
             // Селекторы для модалки создания партии на /play/online
@@ -286,10 +341,9 @@
         },
 
         lichess: {
-            disableOnDates: ['2025-11-16'], // Даты, когда фильтр Lichess полностью отключён
-            // Минимальная база времени в минутах (всё короче — Bullet/UltraBullet, блок).
-            // Vladimir 2026-05-09: «Блиц от 3+0, всё что ниже — блок».
-            minBaseMinutes: 3,
+            disableOnDates: LICHESS_DISABLED_DATES,
+            // Минимальная база времени в минутах — авто-зеркало MIN_BASE_TIME_SECONDS.
+            minBaseMinutes: Math.floor(MIN_BASE_TIME_SECONDS / 60),
             allowedGameTypes: [ // Разрешённые типы игр на Lichess (Блиц / Рапид / Классика)
                 'Блиц', 'Рапид', 'Классика', 'Классические',
                 'Blitz', 'Rapid', 'Classical', 'SuperBlitz' // SuperBlitz = 3+0, это Blitz
@@ -349,7 +403,7 @@
         },
 
         messageControl: {
-            tasksPerMessage: 10, // Сколько задач нужно решить для одного сообщения
+            tasksPerMessage: TASKS_PER_MESSAGE,
             formSelectors: [ // Поддерживаемые формы сообщений и форумов на Lichess
                 '.msg-app__convo__post',
                 'form.form3.reply',
