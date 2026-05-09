@@ -2,7 +2,7 @@
 
 Tampermonkey-userscript: ребёнок может тренировать **задачи** + играть только **Блиц (от 3+0) / Рапид / Классику**. Всё остальное — Bullet, варианты шахмат (Chess960, Crazyhouse, Atomic, etc.), correspondence, соцка (форумы, клубы, переписка) — заблокировано двумя слоями: path-whitelist + DOM/CSS-фильтр.
 
-**Версия:** см. `@version` в `cc.user.js` (актуально 0.9.1).
+**Версия:** см. `@version` в `cc.user.js` (актуально 0.10.0).
 
 ---
 
@@ -122,6 +122,7 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 
 ## История
 
+- **0.10.0** (2026-05-09) — `initAutoHideBlockedPaths()`: автогенерация CSS-rule для всех ссылок на пути из block-list. Каждый путь в block теперь автоматически скрывает свои навигационные ссылки на сайте без отдельной CSS-правки. Border-aware селекторы (3 на путь): `a[href$="/PATH"]` (точное окончание + абсолютные URL), `a[href*="/PATH/"]` (с подпутем), `a[href*="/PATH?"]` (с query). Не ловит false-positive: для `/user` не ловит `/users` (потому что `/users` заканчивается на `/users`, не на `/user`). Покрытие: chess.com 31 path → 93 селектора, lichess.org 22 path → 66 селекторов. Бывшая ручная CSS-правка для `/tournament/new` (v0.9.1) удалена — теперь автоматом
 - **0.9.1** (2026-05-09) — `/tournament/new` lichess в block (создание собственного турнира). Path `/tournament` и `/tournament/<id>` остаются open для просмотра расписания и участия. Бонусом — CSS `a[href$="/tournament/new"] { display: none }` скрывает зелёную кнопку «+ Создать турнир» в правом верхнем углу страницы расписания, чтобы ребёнок не получал overlay блокировки от случайного клика. Curl-verified: 303→/signup для гостя, 200 для залогиненного
 - **0.9.0** (2026-05-09) — структурный рефактор: верх файла теперь `USER SETTINGS` блок (8 секций), ниже — технический `LOCAL_CONFIG`. Родитель крутит расписание / дневные цели / минимум секунд / override-дни / даты отключения lichess / модули / быстрые ссылки в первых ~80 строках, без погружения в DOM-селекторы. Значения 1-в-1 совпадают с pre-refactor (16 ключевых полей проверены через node-репро). `lichess.minBaseMinutes` теперь авто-зеркало `MIN_BASE_TIME_SECONDS / 60` — править минимум в одном месте достаточно
 - **0.8.2** (2026-05-09) — fix мигания карточек турниров на `lichess.org/tournament`. Корень: `safeHide()` ставил inline-style `display:none`, который Vue теряет при rerender (обновление participant count, прогресс-баров) → между уничтожением старого узла и пометкой нового через MutationObserver карточка успевала появиться видимой. Решение: (1) статичный CSS-rule `.tour-chart__inner a.tsht.tsht-short, a.tsht.tsht-variant { display: none !important; }` — Bullet/UltraBullet/HyperBullet/Atomic/Crazyhouse/960 скрываются на CSS-уровне, rerender им не страшен; (2) для custom-турниров с произвольным `X+Y` контролем — class-based hide через `.ucc-blocked-tour { display: none !important; }` (устойчив к замене узла, т.к. Vue класс сохраняет даже при пересоздании). JS-фильтр в `filterTournamentCards()` переписан с `safeHide(card)` на `card.classList.add('ucc-blocked-tour')`

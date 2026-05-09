@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.9.1
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.9: рефактор начала файла — все «родительские» крутилки (расписание, цели, минимум секунд, override-дни) вынесены в верхний USER SETTINGS блок, технический LOCAL_CONFIG ниже. v0.9.1: блок /tournament/new lichess + скрытие кнопки «Создать турнир»
+// @version      0.10.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.9: рефактор USER SETTINGS блока. v0.9.1: блок /tournament/new. v0.10: автоCSS-скрытие всех ссылок на block-list пути — каждый новый путь в block теперь автоматически скрывает свои ссылки в навигации, без отдельной правки
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -1484,6 +1484,35 @@
         return parseInt(match[1], 10);
     }
 
+    // v0.10: автогенерация CSS-rule для всех ссылок на блокированные пути.
+    // Проходит по policy.block для текущего хоста и для каждого пути генерирует
+    // border-aware селекторы, чтобы навигационные ссылки на запрещённые разделы
+    // исчезали без отдельной CSS-правки. Border-aware = не ловим false-positive:
+    //   `/user`  → совпадает с `/user`, `/user/foo`, `/user?...`, но НЕ с `/users`
+    //   `/messages` → совпадает с `/messages`, `/messages/`, `/messages?` — точный border
+    // 3 селектора на путь:
+    //   a[href$="/PATH"]    — конец URL (точное совпадение или абсолютная ссылка ...domain.com/PATH)
+    //   a[href*="/PATH/"]   — путь с подпутем
+    //   a[href*="/PATH?"]   — путь с query-string
+    // Это покрывает 100% типичной разметки lichess/chess.com (включая абсолютные URL).
+    // Регексы из policy.blockRegex не транслируются в CSS — они редкие (insights/<user>,
+    // settings/close*) и для них уже есть точечный JS-блок path-policy.
+    function initAutoHideBlockedPaths() {
+        if (HOST !== 'chess.com' && HOST !== 'www.chess.com' && HOST !== 'lichess.org') return;
+        const policy = getPathPolicyForHost(HOST);
+        if (!policy || !Array.isArray(policy.block) || policy.block.length === 0) return;
+
+        const escapeForCss = (s) => String(s).replace(/"/g, '\\"');
+        const selectors = [];
+        for (const path of policy.block) {
+            const p = escapeForCss(path);
+            selectors.push(`a[href$="${p}"]`);   // .../inbox  или /inbox
+            selectors.push(`a[href*="${p}/"]`);  // /inbox/foo
+            selectors.push(`a[href*="${p}?"]`);  // /inbox?bar=baz
+        }
+        addStyle(selectors.join(',\n') + ' { display: none !important; }');
+    }
+
     // v0.7: скрываем кнопки «Выйти из аккаунта» и «Удалить/Закрыть аккаунт» на обоих сайтах.
     // Двойная защита поверх path-whitelist (родитель один раз залогинил — ребёнок не должен разлогиниваться/удалять профиль):
     //   1) CSS — селекторы по href/action ловят `<a href="/logout">`, `<form action="/logout">`,
@@ -1719,11 +1748,8 @@
             a.tsht.tsht-short,
             a.tsht.tsht-variant,
             .ucc-blocked-tour { display: none !important; }
-            /* v0.9.1: кнопка «+ Создать турнир» в правом верхнем углу /tournament — родительский фильтр блокирует path,
-               но кнопка лучше пусть исчезает, чтобы не дразнить overlay'ем после клика */
-            a[href$="/tournament/new"],
-            a[href="/tournament/new"] { display: none !important; }
         `);
+        // v0.10: ссылки на /tournament/new (и любые другие пути из lichess block-list) скрывает initAutoHideBlockedPaths.
 
         // Универсальный фильтр /training/*: разрешены корень, /training/themes,
         // встроенные учебные тренажёры (coordinate, daily, dashboard/<rating>, history),
@@ -2056,6 +2082,7 @@
         return;
     }
 
+    initAutoHideBlockedPaths();
     initAccountControlHider();
     initChessComFilter();
     initLichessFilter();
