@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.10.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.9: рефактор USER SETTINGS блока. v0.9.1: блок /tournament/new. v0.10: автоCSS-скрытие всех ссылок на block-list пути — каждый новый путь в block теперь автоматически скрывает свои ссылки в навигации, без отдельной правки
+// @version      0.11.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.9: USER SETTINGS блок. v0.10: автоCSS-скрытие block-путей. v0.11: (a) окно «Цель выполнена» исчезает по completed (а не остаётся плавать), (b) автопереключение Bullet→Blitz 3+2 на /play/online если chess.com помнил Bullet
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -1329,6 +1329,13 @@
         const windowEl = createProgressWindow();
         if (!windowEl) return;
         const state = syncTrackerState(formatDateKey());
+        // v0.11: цель выполнена → окно полностью исчезает (а не просто меняет заголовок).
+        // Цель окна — мотивировать дорешать; когда дорешали, информация больше не нужна.
+        if (state.remaining === 0) {
+            windowEl.style.display = 'none';
+            return;
+        }
+        windowEl.style.display = '';
         const solvedEl = windowEl.querySelector('[data-role="solved"]');
         const targetEl = windowEl.querySelector('[data-role="target"]');
         const remainingEl = windowEl.querySelector('[data-role="remaining"]');
@@ -1336,10 +1343,10 @@
         if (targetEl) targetEl.textContent = String(state.target);
         if (remainingEl) {
             remainingEl.textContent = String(state.remaining);
-            remainingEl.style.color = state.remaining === 0 ? '#9cffb2' : '#ffe17e';
+            remainingEl.style.color = '#ffe17e';
         }
         const titleEl = windowEl.querySelector('.ucc-progress-title');
-        if (titleEl) titleEl.textContent = state.remaining === 0 ? 'Цель выполнена' : 'Прогресс задач';
+        if (titleEl) titleEl.textContent = 'Прогресс задач';
     }
 
     function ensureProgressHeartbeat() {
@@ -1628,6 +1635,41 @@
         const minMinutes = Math.floor((cfg.minBaseTimeSeconds || 180) / 60);
         const blockedTimeLabelSet = new Set((cfg.blockedTimeLabels || []).map((s) => s.trim()));
 
+        // v0.11: автопереключение времени, если chess.com помнит Bullet как последний выбор.
+        // На /play/online dropdown сверху может показывать «1 мин. (Пуля)» по дефолту — это
+        // сохранённый выбор пользователя. Bullet-секция уже скрыта CSS, но текущий selected
+        // остаётся Bullet → guardPlayButton при клике даст alert. Лучше сразу программно
+        // кликнуть на разрешённую кнопку (3|2 Blitz / 5 мин / 10 мин), чтобы dropdown показал
+        // нормальное время. Один раз при появлении модалки.
+        const autoSwitchFromBullet = () => {
+            const labelEl = document.querySelector(ng.topTimeDropdownLabel);
+            if (!labelEl) return;
+            // dataset-флаг чтобы не дёргать клик в каждом applyRules-цикле
+            if (labelEl.dataset.uccAutoSwitched === '1') return;
+            const label = (labelEl.textContent || '').trim();
+            const minutes = parseChessComTimeLabel(label);
+            const isBlocked = /Пуля|Bullet|день|дн[еяёй]/i.test(label) || minutes === null || minutes < minMinutes;
+            if (!isBlocked) {
+                labelEl.dataset.uccAutoSwitched = '1';
+                return;
+            }
+            // Кандидаты в порядке предпочтения: 3+2 Блиц (минимум-разрешённое), 5 мин, 10 мин Рапид
+            const candidateSelectors = [
+                '[data-cy="time-selector-category-180|2"]',
+                '[data-cy="time-selector-category-300"]',
+                '[data-cy="time-selector-category-180"]',
+                '[data-cy="time-selector-category-600"]'
+            ];
+            for (const sel of candidateSelectors) {
+                const btn = document.querySelector(sel);
+                if (btn && btn.offsetParent !== null) { // visible (не скрыт CSS)
+                    btn.click();
+                    labelEl.dataset.uccAutoSwitched = '1';
+                    return;
+                }
+            }
+        };
+
         // Перехват клика по кнопке "Начать партию" — если выбран Bullet/Daily, не пускаем.
         const guardPlayButton = () => {
             const btn = document.querySelector(ng.playButton);
@@ -1715,6 +1757,7 @@
                 }
             });
             filterIncomingChallenges();
+            autoSwitchFromBullet();
             guardPlayButton();
             guardBotCtaButton();
         };
