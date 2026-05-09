@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.9.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.9: рефактор начала файла — все «родительские» крутилки (расписание, цели, минимум секунд, override-дни) вынесены в верхний USER SETTINGS блок, технический LOCAL_CONFIG ниже
+// @version      0.9.1
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.9: рефактор начала файла — все «родительские» крутилки (расписание, цели, минимум секунд, override-дни) вынесены в верхний USER SETTINGS блок, технический LOCAL_CONFIG ниже. v0.9.1: блок /tournament/new lichess + скрытие кнопки «Создать турнир»
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -224,7 +224,10 @@
                         // Студии (v0.8) — UGC-раздел: создание/поиск/листание чужих studies + автор-link на профили,
                         // лайки, follow, комментарии. Слишком много social-элементов чтобы чистить селекторами.
                         // Раздел /learn содержит свою лестницу обучения, /practice есть отдельно — этого достаточно.
-                        '/study'
+                        '/study',
+                        // Создание собственного турнира (v0.9.1) — не в scope «играть в правильные шахматы».
+                        // /tournament (просмотр) и /tournament/<id> (участие) остаются открытыми.
+                        '/tournament/new'
                     ],
                     blockRegex: [
                         '^/@/',                                  // профили /@/<username>
@@ -1716,6 +1719,10 @@
             a.tsht.tsht-short,
             a.tsht.tsht-variant,
             .ucc-blocked-tour { display: none !important; }
+            /* v0.9.1: кнопка «+ Создать турнир» в правом верхнем углу /tournament — родительский фильтр блокирует path,
+               но кнопка лучше пусть исчезает, чтобы не дразнить overlay'ем после клика */
+            a[href$="/tournament/new"],
+            a[href="/tournament/new"] { display: none !important; }
         `);
 
         // Универсальный фильтр /training/*: разрешены корень, /training/themes,
