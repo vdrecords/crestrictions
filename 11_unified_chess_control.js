@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.7.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.7: блок /logout, close-account/delete на обоих сайтах + CSS+DOM-walker по тексту «Выйти/Logout/Удалить аккаунт»
+// @version      0.8.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.8: /play/computer без-таймера + variant dropdown скрыты, guard на bot CTA, /study lichess в block, /insights/<other-user> в block, /other chess.com в block
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -92,13 +92,18 @@
                         // Профили (доступ к чужим = доступ к кнопке "Написать сообщение")
                         '/member', '/users', '/user',
                         // Logout / закрытие аккаунта (v0.7) — родитель один раз залогинил, ребёнок не должен разлогиниваться/удалять профиль
-                        '/logout'
+                        '/logout',
+                        // Sidebar "Другие" (v0.8) — сборная страница доп.функций, не нужна для тренировок
+                        '/other'
                     ],
                     blockRegex: [
                         '^/play/online/new\\?.*\\bdaily=',          // correspondence в block
                         '^/play/online/new\\?.*\\btime=daily',
                         '^/play/online/[A-Za-z0-9]+/?\\?.*\\bdaily=',
-                        '^/settings/close'                          // /settings/close-account и любые варианты close*
+                        '^/settings/close',                         // /settings/close-account и любые варианты close*
+                        // /insights/<username> — просмотр чужих творческих профилей (Hikaru, GothamChess и т.д.) (v0.8)
+                        // Корень /insights (свои данные) остаётся allow.
+                        '^/insights/[A-Za-z0-9_-]+'
                     ],
                     allow: [
                         '/', '/home', '/login', '/signup', '/register',
@@ -138,7 +143,11 @@
                         '/simul',
                         // Logout / закрытие аккаунта (v0.7). /logout и /account/close редиректят на signup/login,
                         // что ломает текущий залогиненный сеанс. Прямого пути нет, кнопки — также скрыты CSS+DOM-walker.
-                        '/logout', '/account/close', '/account/delete'
+                        '/logout', '/account/close', '/account/delete',
+                        // Студии (v0.8) — UGC-раздел: создание/поиск/листание чужих studies + автор-link на профили,
+                        // лайки, follow, комментарии. Слишком много social-элементов чтобы чистить селекторами.
+                        // Раздел /learn содержит свою лестницу обучения, /practice есть отдельно — этого достаточно.
+                        '/study'
                     ],
                     blockRegex: [
                         '^/@/',                                  // профили /@/<username>
@@ -156,7 +165,8 @@
                         // Создание партии / игры (фильтр Bullet применяется отдельно)
                         '/setup', '/play',
                         // Учебные / тренировка (без /coordinate: реальный URL /training/coordinate, см. 2026-05-09 curl-check)
-                        '/learn', '/practice', '/study',
+                        // /study убран в v0.8 (UGC раздел, см. block выше)
+                        '/learn', '/practice',
                         // Анализ
                         '/analysis', '/editor', '/explorer', '/paste', '/opening',
                         // Турниры Арены (фильтр по типу контроля + варианту через initLichessFilter)
@@ -225,6 +235,15 @@
                 playButton: '[data-cy="new-game-index-play"]',
                 topTimeDropdownLabel: '[data-cy="new-game-time-selector-button"] .cc-dropdown-button-label',
                 incomingChallenge: '.incoming-challenges-challenge'
+            },
+            // v0.8: селекторы для модалки игры с компьютером /play/computer
+            // (a) noTimerButton — кнопка «Без таймера» (играть без часов = нарушение Blitz≥3+0)
+            // (b) variantDropdown — выпадашка вариантов (по дефолту «Классика», но кликом можно сменить на 960/Crazyhouse)
+            // (c) botCtaButton — отдельная кнопка «Играть» бот-арены, не пересекается с playButton выше
+            playComputerSelectors: {
+                noTimerButton: '.mode-selection-container-no-timer-button',
+                variantDropdown: '[data-cy="variant-dropdown-button"]',
+                botCtaButton: '[data-cy="bot-selection-cta-button"]'
             },
             blockedTournamentKeywords: [ // Ключевые слова турниров Chess.com для скрытия (case-insensitive)
                 // Короткий контроль (Bullet/UltraBullet) — не Blitz/Rapid/Classical
@@ -1501,16 +1520,20 @@
 
         const cfg = CONFIG.chessCom;
         const ng = cfg.newGameSelectors;
+        const pc = cfg.playComputerSelectors || {};
 
         // CSS: статические + модалка создания партии (Bullet/Daily секции, custom toggle, friend кнопка)
+        // + v0.8: модалка /play/computer (no-timer, variant dropdown)
         const baseSelectors = [
             ...cfg.staticHideSelectors,
             ng.bulletSection,
             ng.dailySection,
             ng.customGameToggle,
             ng.customGameButton,
-            ng.friendButton
-        ];
+            ng.friendButton,
+            pc.noTimerButton,
+            pc.variantDropdown
+        ].filter(Boolean);
         addStyle(baseSelectors.map((sel) => `${sel} { display: none !important; }`).join('\n'));
 
         const minMinutes = Math.floor((cfg.minBaseTimeSeconds || 180) / 60);
@@ -1529,6 +1552,26 @@
                     event.preventDefault();
                     event.stopImmediatePropagation();
                     window.alert(`Можно играть только Блиц от ${minMinutes}+0, Рапид и Классику.\nВыберите контроль 3 мин. или больше.`);
+                }
+            }, true);
+        };
+
+        // v0.8: defense-in-depth для /play/computer кнопки «Играть» (бот-арена).
+        // CSS уже скрыл «Без таймера» и variant dropdown, но если рендер задержался и кто-то
+        // нажал — проверяем что variant остался «Стандарт/Классика». Сами Bullet-секции
+        // тоже скрыты CSS'ом сверху.
+        const guardBotCtaButton = () => {
+            if (!pc.botCtaButton) return;
+            const btn = document.querySelector(pc.botCtaButton);
+            if (!btn || btn.dataset.uccBotGuard === '1') return;
+            btn.dataset.uccBotGuard = '1';
+            btn.addEventListener('click', (event) => {
+                const variantLabel = (document.querySelector(`${pc.variantDropdown} .cc-dropdown-button-label`)?.textContent || '').trim();
+                const isStandard = !variantLabel || /Стандарт|Standard|Классика|Classical/i.test(variantLabel);
+                if (!isStandard) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    window.alert('Можно играть только обычные шахматы (Классика). Варианты типа 960, Crazyhouse, Atomic запрещены.');
                 }
             }, true);
         };
@@ -1584,6 +1627,7 @@
             });
             filterIncomingChallenges();
             guardPlayButton();
+            guardBotCtaButton();
         };
 
         RUNTIME.chessCom.applyRules = applyRules;

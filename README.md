@@ -2,7 +2,7 @@
 
 Tampermonkey-userscript: ребёнок может тренировать **задачи** + играть только **Блиц (от 3+0) / Рапид / Классику**. Всё остальное — Bullet, варианты шахмат (Chess960, Crazyhouse, Atomic, etc.), correspondence, соцка (форумы, клубы, переписка) — заблокировано двумя слоями: path-whitelist + DOM/CSS-фильтр.
 
-**Версия:** см. `@version` в `cc.user.js` (актуально 0.7.0).
+**Версия:** см. `@version` в `cc.user.js` (актуально 0.8.0).
 
 ---
 
@@ -92,6 +92,8 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 - `/membership`, `/votechess`, `/computer-chess-championship`, `/variants`, `/aimchess`
 - `/member`, `/users`, `/user` (профили)
 - `/logout`, `/settings/close*` (выход / удаление аккаунта)
+- `/other` (sidebar «Другие» — сборная страница доп.функций)
+- `/insights/<username>` (просмотр чужих творческих профилей: Hikaru, GothamChess и т.д. — корень `/insights` для своих метрик остаётся)
 
 ### Lichess.org
 - `/inbox`, `/team`, `/forum`, `/blog`, `/ublog`, `/coach`, `/player`, `/players`, `/patron`, `/timeline`
@@ -99,6 +101,7 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 - `/games/search`, `/swiss`, `/simul`
 - `/@/<username>` (профили)
 - `/logout`, `/account/close`, `/account/delete` (выход / удаление аккаунта)
+- `/study` (UGC-раздел студий: создание, поиск, листание чужих с автор-link и комментариями)
 
 ---
 
@@ -118,6 +121,7 @@ location = /cc { return 301 https://raw.githubusercontent.com/vdrecords/crestric
 
 ## История
 
+- **0.8.0** (2026-05-09) — `/play/computer` усиление + блок UGC и чужих профилей. **Path-policy**: chess.com `/other` (sidebar) и `/insights/<username>` (чужие творческие профили — Hikaru/GothamChess) добавлены в block; lichess `/study` целиком в block (UGC-раздел: создание/поиск/листание чужих studies с автором, лайками, комментариями). **chessComFilter**: новые селекторы `playComputerSelectors` — `.mode-selection-container-no-timer-button` (играть бота без часов), `[data-cy="variant-dropdown-button"]` (выбор 960/Crazyhouse/Atomic) — оба скрыты CSS на /play/computer. Defense-in-depth `guardBotCtaButton` на `[data-cy="bot-selection-cta-button"]`: проверяет что вариант остался Стандарт/Классика, иначе alert. Curl-verified: `/other` (200), `/insights/hikaru` (200), `/study` (200), `/study/<id>` (200) — все живые
 - **0.7.0** (2026-05-09) — блокировка logout / удаления аккаунта на обоих сайтах. Path-policy: `/logout` (chess.com и lichess), `/account/close`/`/account/delete` (lichess), `/settings/close*` (chess.com через blockRegex). CSS+DOM-walker: `initAccountControlHider()` инжектит селекторы по `href`/`action` (`a[href$="/logout"]`, `form[action*="/logout"]`, `a[href*="/account/close"]`) + MutationObserver обходит a/button/menuitem на тексты «Выйти», «Logout», «Sign out», «Закрыть аккаунт», «Удалить аккаунт», «Close account», «Delete account» и скрывает их (включая родительский `<li>` / `.dropdown-item`). Цель: родитель один раз залогинил — ребёнок не должен случайно или намеренно разлогиниться/удалить профиль. Curl-verified: `/logout` (302→/), `/settings/close-account` (200), `/account/close` (200), `/account/delete` (200), `/auth/logout` (404 — не существует), `/settings/close` (404 — только `close-account`)
 - **0.6.0** (2026-05-09) — fix false-block для встроенных тренажёров lichess: `/training/coordinate` (Координаты), `/training/daily` (Задача дня), `/training/dashboard/<rating>` (Панель задач) добавлены в `isAllowedTrainingPath`. Удалён фантомный `/coordinate` из allow chess.com (404 на голом /coordinate, реальный URL — только `/training/coordinate`)
 - **0.5.0** (2026-05-09) — `/play/computer` поддержка: универсальный submit-button (`.footer .lobby__start__button` ловит `--hook` / `--ai` / `--friend`), auto-switch с активного «Отсутствует»/«По переписке» на «По часам», variant-check на submit (блокировка не-стандартных шахмат), CSS-скрытие «Бросить вызов другу» на лобби. Memory-rule: перед запросом DOM у тебя — curl-проверка URL на 200
