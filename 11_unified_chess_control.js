@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.8.1
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.8: /play/computer без-таймера + variant dropdown скрыты, guard на bot CTA, /study lichess в block, /insights/<other-user> в block, /other chess.com в block. v0.8.1: разовый override 2026-05-09 утреннее окно до 13:00
+// @version      0.8.2
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. v0.8: /play/computer без-таймера + variant dropdown скрыты, guard на bot CTA, /study lichess в block, /insights/<other-user> в block, /other chess.com в block. v0.8.1: разовый override 2026-05-09 утреннее окно до 13:00. v0.8.2: fix мигания турниров lichess /tournament — CSS-rule на .tsht-short/.tsht-variant + class-based hide устойчивый к Vue rerender
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -1648,8 +1648,20 @@
         // CSS-инъекция: скрываем кнопки лобби, ведущие к запрещённым потокам.
         // «Бросить вызов другу» = форма прямого контакта с конкретным игроком (соцка) → блок.
         // Остаются на лобби только «Создать запрос на игру» и «Сыграть с компьютером».
+        // v0.8.2: на /tournament — статичные CSS-правила для .tsht-short (Bullet/UltraBullet/HyperBullet)
+        // и .tsht-variant (Atomic/Crazyhouse/960/3check/etc.). До v0.8.2 эти карточки скрывались
+        // через safeHide → inline-style → терялись при Vue rerender (обновление participant count) →
+        // карточки мигали («то вижу, то пропадают», прецедент 2026-05-09). CSS-класс к таким
+        // потерям иммунен: при пересоздании DOM-узла Vue классы сохраняет.
+        // .ucc-blocked-tour — class-based hide для custom-турниров (с произвольным X+Y),
+        // которые нельзя поймать через .tsht-short (проверка идёт парсером минут).
         addStyle(`
             .lobby__start__button--friend { display: none !important; }
+            .tour-chart__inner a.tsht.tsht-short,
+            .tour-chart__inner a.tsht.tsht-variant,
+            a.tsht.tsht-short,
+            a.tsht.tsht-variant,
+            .ucc-blocked-tour { display: none !important; }
         `);
 
         // Универсальный фильтр /training/*: разрешены корень, /training/themes,
@@ -1719,24 +1731,27 @@
         }
 
         // Фильтр карточек турниров на /tournament (расписание).
-        // 1. .tsht-variant — варианты (Atomic, Crazyhouse, 960, etc.) → всегда блок
-        // 2. .tsht-short — короткий контроль (Bullet/UltraBullet/HyperBullet) → всегда блок
-        // 3. Парсинг "X+Y" из .text — если X < minMinutes → блок
+        // 1. .tsht-variant — варианты (Atomic, Crazyhouse, 960, etc.) → блок чистым CSS-rule (см. addStyle выше)
+        // 2. .tsht-short — короткий контроль (Bullet/UltraBullet/HyperBullet) → блок чистым CSS-rule (см. addStyle выше)
+        // 3. Парсинг "X+Y" из .text — если X < minMinutes → блок через class .ucc-blocked-tour (устойчиво к Vue rerender)
+        // v0.8.2: класс вместо inline-style — Vue при пересоздании DOM-узла сохраняет классы.
         function filterTournamentCards() {
             const tCfg = lichessCfg.tournamentCardClasses;
             document.querySelectorAll('.tour-chart__inner a.tsht, a.tsht').forEach((card) => {
-                if (card.classList.contains(tCfg.variant)) { safeHide(card); return; }
-                if (card.classList.contains(tCfg.short)) { safeHide(card); return; }
+                // Cases 1 и 2 (tsht-variant / tsht-short) уже скрыты CSS-rule, JS им не нужен.
+                if (card.classList.contains(tCfg.variant)) return;
+                if (card.classList.contains(tCfg.short)) return;
+                if (card.classList.contains('ucc-blocked-tour')) return; // уже отметили
                 const text = (card.querySelector(tCfg.textInfo)?.textContent || '').trim();
                 const minutes = parseLichessTimeFormat(text);
                 if (minutes === null) {
-                    // Старый fallback: проверка по имени/иконке
+                    // Fallback: проверка по имени/иконке (для не-стандартных карточек без X+Y)
                     const iconTitle = card.querySelector('.icon')?.getAttribute('title') || '';
                     const fullText = `${iconTitle} ${card.textContent || ''}`;
-                    if (!textHasAllowedType(fullText)) safeHide(card);
+                    if (!textHasAllowedType(fullText)) card.classList.add('ucc-blocked-tour');
                     return;
                 }
-                if (minutes < minMinutes) safeHide(card);
+                if (minutes < minMinutes) card.classList.add('ucc-blocked-tour');
             });
         }
 
