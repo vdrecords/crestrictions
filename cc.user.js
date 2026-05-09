@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.5.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM
+// @version      0.6.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. Фильтр модалки создания партии, турниров, hook/ai/friend-формы. Bullet/Variants/Daily/Swiss/Simul/соцка — блок path+DOM. Fix: /training/coordinate /daily /dashboard теперь allow
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -149,8 +149,8 @@
                         '/racer', '/storm', '/streak',
                         // Создание партии / игры (фильтр Bullet применяется отдельно)
                         '/setup', '/play',
-                        // Учебные / тренировка
-                        '/learn', '/practice', '/study', '/coordinate',
+                        // Учебные / тренировка (без /coordinate: реальный URL /training/coordinate, см. 2026-05-09 curl-check)
+                        '/learn', '/practice', '/study',
                         // Анализ
                         '/analysis', '/editor', '/explorer', '/paste', '/opening',
                         // Турниры Арены (фильтр по типу контроля + варианту через initLichessFilter)
@@ -1509,11 +1509,17 @@
             .lobby__start__button--friend { display: none !important; }
         `);
 
-        // Универсальный фильтр /training/*: разрешены только корень, /training/themes
-        // и конкретные задачи /training/<numeric-id>. Любая новая тема,
-        // которую Lichess добавит в будущем (/training/<text>), автоматически блокируется.
+        // Универсальный фильтр /training/*: разрешены корень, /training/themes,
+        // встроенные учебные тренажёры (coordinate, daily, dashboard/<rating>, history),
+        // и конкретные задачи /training/<numeric-id>.
+        // Любая новая тематическая тема (/training/mate, /training/openings, etc.)
+        // автоматически блокируется. Прецедент 2026-05-09 (curl-проверка):
+        // /coordinate сам по себе → 404, реальный URL /training/coordinate → 200.
         const isAllowedTrainingPath = (path) => {
             if (path === '/training' || path === '/training/themes') return true;
+            if (path === '/training/coordinate' || path === '/training/daily') return true;
+            if (path === '/training/history' || path === '/training/tags') return true;
+            if (/^\/training\/dashboard\/\d+$/.test(path)) return true;
             return /^\/training\/\d+$/.test(path);
         };
         const isBlockedTrainingPath = (path) =>
