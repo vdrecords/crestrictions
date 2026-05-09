@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.12.2
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout окна прогресса (откат кнопок свернуть/закрыть из v0.12.1).
+// @version      0.12.3
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач.
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -132,6 +132,12 @@
     const BULLET_REWARD_CAP_MINUTES = 60;            // Потолок окна (макс. минут в день)
     const BULLET_REWARD_MIN_BULLET_SECONDS = 60;     // Минимум базы партии в окне (60 = 1+0 разрешён)
     const BULLET_REWARD_DISABLED_DATES = [];         // ['2026-05-15'] — дни когда родитель явно закрывает Bullet
+    // ★ Особый день: Bullet-окно открыто на полный час (60 мин в конце расписания) НЕЗАВИСИМО
+    //   от количества решённых задач. Используется для дней рождения, праздников, болезней и т.п.
+    //   Формат YYYY-MM-DD. disabledDates имеет приоритет (если дата и в том, и в этом списке —
+    //   Bullet закрыт). Если ребёнок и так заработал 60 мин по задачам — окно всё равно 60 мин
+    //   (не суммируется), просто гарантия что час будет.
+    const BULLET_REWARD_FORCE_OPEN_DATES = ['2026-05-09']; // Сегодня — особый день, Bullet час доступен
 
     // ═════════════════════════════════════════════════════════════════════════
     // 🔧 ТЕХНИЧЕСКАЯ КОНФИГУРАЦИЯ (DOM-селекторы, regex, паттерны URL)
@@ -317,6 +323,7 @@
             capMinutes: BULLET_REWARD_CAP_MINUTES,
             minBulletSeconds: BULLET_REWARD_MIN_BULLET_SECONDS,
             disabledDates: BULLET_REWARD_DISABLED_DATES,
+            forceOpenDates: BULLET_REWARD_FORCE_OPEN_DATES,
             bodyClass: 'ucc-bullet-window-open'
         },
 
@@ -1213,12 +1220,14 @@
             minutesUntilOpen: 0,
             secondsLeftInWindow: 0,
             threshold: cfg.threshold || 0,
-            cap: cfg.capMinutes || 0
+            cap: cfg.capMinutes || 0,
+            forceOpened: false  // v0.12.3: особый день, окно cap-минут гарантировано независимо от solved
         };
 
         if (!cfg.enabled) return result;
 
         const dateKey = formatDateKey(now);
+        // disabledDates имеет приоритет — родитель явно закрыл Bullet на этот день.
         if (Array.isArray(cfg.disabledDates) && cfg.disabledDates.includes(dateKey)) {
             return result;
         }
@@ -1235,22 +1244,33 @@
         const stepTaskCount = cfg.stepTaskCount || 100;
         const capMinutes = cfg.capMinutes || 60;
 
-        if (solved < threshold) {
+        // v0.12.3: forceOpenDates — особый день, гарантия cap-минут независимо от solved.
+        // Перебивает обычный расчёт по задачам. Если ребёнок и так заработал cap по задачам —
+        // окно остаётся cap (не суммируется). UI помечает forceOpened=true.
+        const isForcedOpen = Array.isArray(cfg.forceOpenDates) && cfg.forceOpenDates.includes(dateKey);
+
+        if (!isForcedOpen && solved < threshold) {
             result.nextStepTasks = threshold - solved;
             result.nextStepEarnedMinutes = minutesAtThreshold;
             return result;
         }
 
         result.eligible = true;
-        const extraSteps = Math.floor((solved - threshold) / stepTaskCount);
-        const rawMinutes = minutesAtThreshold + extraSteps * extraPerStep;
-        result.earnedMinutes = Math.min(rawMinutes, capMinutes);
-        result.capReached = result.earnedMinutes >= capMinutes;
+        if (isForcedOpen) {
+            result.forceOpened = true;
+            result.earnedMinutes = capMinutes;
+            result.capReached = true;
+        } else {
+            const extraSteps = Math.floor((solved - threshold) / stepTaskCount);
+            const rawMinutes = minutesAtThreshold + extraSteps * extraPerStep;
+            result.earnedMinutes = Math.min(rawMinutes, capMinutes);
+            result.capReached = result.earnedMinutes >= capMinutes;
 
-        if (!result.capReached) {
-            const nextThresholdSolved = threshold + (extraSteps + 1) * stepTaskCount;
-            result.nextStepTasks = Math.max(0, nextThresholdSolved - solved);
-            result.nextStepEarnedMinutes = Math.min(rawMinutes + extraPerStep, capMinutes);
+            if (!result.capReached) {
+                const nextThresholdSolved = threshold + (extraSteps + 1) * stepTaskCount;
+                result.nextStepTasks = Math.max(0, nextThresholdSolved - solved);
+                result.nextStepEarnedMinutes = Math.min(rawMinutes + extraPerStep, capMinutes);
+            }
         }
 
         const openAt = new Date(scheduleEnd.getTime() - result.earnedMinutes * 60 * 1000);
@@ -1499,7 +1519,7 @@
     }
 
     // v0.12.2: формирует ОДНУ компактную inline-строку для Bullet-блока окна прогресса.
-    // 4 состояния: открыт сейчас / достижим (окно впереди) / cap / порог не достигнут / выключен.
+    // 5 состояний: forceOpened (особый день) / открыт сейчас / достижим (окно впереди) / cap / порог не достигнут / выключен.
     function formatBulletStatus(bullet) {
         if (!bullet || !bullet.enabled) {
             return { show: false, text: '' };
@@ -1509,9 +1529,14 @@
 
         if (bullet.isOpen) {
             const left = formatSecondsAsClock(bullet.secondsLeftInWindow);
-            return { show: true, text: `Активен · ${left} до ${closeStr}` };
+            const prefix = bullet.forceOpened ? '🎁 Особый день · Активен' : 'Активен';
+            return { show: true, text: `${prefix} · ${left} до ${closeStr}` };
         }
         if (bullet.eligible) {
+            // v0.12.3: forceOpened — особый день, час гарантирован независимо от задач.
+            if (bullet.forceOpened) {
+                return { show: true, text: `🎁 Особый день · ${openStr}–${closeStr} (${bullet.earnedMinutes} мин)` };
+            }
             if (bullet.capReached) {
                 return { show: true, text: `${openStr}–${closeStr} (${bullet.earnedMinutes} мин — максимум)` };
             }
