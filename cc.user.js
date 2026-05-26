@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.12.8
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.).
+// @version      0.12.9
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8.
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -1314,7 +1314,14 @@
     }
 
     function ensureTimeOverlay() {
-        if (RUNTIME.timeBlocker.overlay) return RUNTIME.timeBlocker.overlay;
+        if (RUNTIME.timeBlocker.overlay) {
+            // v0.12.9: SPA (lichess) может вычистить overlay из DOM — переподключаем,
+            // иначе display:flex ставится на отсоединённую ноду и блок не виден.
+            const cachedOverlay = RUNTIME.timeBlocker.overlay;
+            const rootC = document.documentElement || document.body;
+            if (rootC && !cachedOverlay.isConnected) rootC.appendChild(cachedOverlay);
+            return cachedOverlay;
+        }
         const overlay = document.createElement('div');
         overlay.id = 'ucc-time-blocker-overlay';
         overlay.innerHTML = `
@@ -1334,13 +1341,24 @@
             'padding:24px',
             'box-sizing:border-box'
         ].join(';');
-        onReady(() => document.documentElement.appendChild(overlay));
+        // v0.12.9: подключаем СРАЗУ — documentElement существует уже на document-start.
+        // Раньше append откладывался через onReady (DOMContentLoaded), но showBlockedOverlay
+        // зовёт window.stop(), который прерывает загрузку ДО DOMContentLoaded → callback
+        // не срабатывал и overlay не появлялся (баг lichess: «нет надписи Разблокируется…»).
+        const overlayRoot = document.documentElement || document.body;
+        if (overlayRoot) overlayRoot.appendChild(overlay);
+        else onReady(() => (document.documentElement || document.body).appendChild(overlay));
         RUNTIME.timeBlocker.overlay = overlay;
         return overlay;
     }
 
     function ensureWarningTimer() {
-        if (RUNTIME.timeBlocker.warningTimerEl) return RUNTIME.timeBlocker.warningTimerEl;
+        if (RUNTIME.timeBlocker.warningTimerEl) {
+            const cachedWarn = RUNTIME.timeBlocker.warningTimerEl;
+            const rootW = document.documentElement || document.body;
+            if (rootW && !cachedWarn.isConnected) rootW.appendChild(cachedWarn);
+            return cachedWarn;
+        }
         const el = document.createElement('div');
         el.id = 'ucc-time-warning';
         el.style.cssText = [
@@ -1356,7 +1374,10 @@
             'font:700 14px Arial, sans-serif',
             'box-shadow:0 10px 24px rgba(0,0,0,0.18)'
         ].join(';');
-        onReady(() => document.documentElement.appendChild(el));
+        // v0.12.9: подключаем сразу (тот же фикс гонки window.stop(), что и у overlay).
+        const warnRoot = document.documentElement || document.body;
+        if (warnRoot) warnRoot.appendChild(el);
+        else onReady(() => (document.documentElement || document.body).appendChild(el));
         RUNTIME.timeBlocker.warningTimerEl = el;
         return el;
     }
