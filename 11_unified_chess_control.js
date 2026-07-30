@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.14.0
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката. v0.14.0: гонка загрузки при перезапуске браузера — ребёнок успевал отправить сообщение в первые 0.5–2 с, пока Tampermonkey ещё не внедрил скрипт (страница отрисована, блок-экран появлялся позже). Скрипт не может выполниться раньше расширения, поэтому окно закрыто с двух других сторон: (1) installSendGuard — предохранитель отправки в мире страницы (unsafeWindow): fetch, XMLHttpRequest, кадры WebSocket с msgSend/forumPost, sendBeacon, capture-слушатель submit и HTMLFormElement.prototype.submit; решение по URL ЗАПРОСА (deny-лист /inbox, /msg, /forum, /team/*/pm, /ublog, /coach, /@/*/note, chess.com /messages, /service/messages, /forum, /clubs/*/forum) и только для POST/PUT/PATCH/DELETE, поэтому легальные запросы сайтов не страдают. Набор текста занимает секунды — к моменту «Отправить» скрипт уже загружен и режет отправку, даже если блок-экран опоздал. (2) sanitizeBlockedUrl — перед document.write адрес вкладки подменяется на безопасный (/training, /puzzles), поэтому восстановление сессии больше не открывает /inbox повторно. Тумблеры SEND_GUARD_ENABLED и SANITIZE_BLOCKED_URL. Полностью гонку снимает только блокировка на уровне браузера (Chrome policy URLBlocklist) — см. README_RUS.md.
+// @version      0.15.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката. v0.14.0: гонка загрузки при перезапуске браузера — ребёнок успевал отправить сообщение в первые 0.5–2 с, пока Tampermonkey ещё не внедрил скрипт (страница отрисована, блок-экран появлялся позже). Скрипт не может выполниться раньше расширения, поэтому окно закрыто с двух других сторон: (1) installSendGuard — предохранитель отправки в мире страницы (unsafeWindow): fetch, XMLHttpRequest, кадры WebSocket с msgSend/forumPost, sendBeacon, capture-слушатель submit и HTMLFormElement.prototype.submit; решение по URL ЗАПРОСА (deny-лист /inbox, /msg, /forum, /team/*/pm, /ublog, /coach, /@/*/note, chess.com /messages, /service/messages, /forum, /clubs/*/forum) и только для POST/PUT/PATCH/DELETE, поэтому легальные запросы сайтов не страдают. Набор текста занимает секунды — к моменту «Отправить» скрипт уже загружен и режет отправку, даже если блок-экран опоздал. (2) sanitizeBlockedUrl — перед document.write адрес вкладки подменяется на безопасный (/training, /puzzles), поэтому восстановление сессии больше не открывает /inbox повторно. Тумблеры SEND_GUARD_ENABLED и SANITIZE_BLOCKED_URL. Полностью гонку снимает только блокировка на уровне браузера (Chrome policy URLBlocklist) — см. README_RUS.md. v0.15.0: разрешены швейцарские турниры на lichess (были закрыты целиком с 2026-05-09). Открыты /swiss (расписание) и /swiss/<id> (участие), закрыто только создание своего турнира /swiss/new/<team> — симметрично Арене (/tournament/new). Правила отбора те же, что у Арены: строки расписания фильтрует filterSwissRows (UltraBullet ¼+0/½+0 и варианты Atomic/Crazyhouse/960 скрыты всегда, Пуля 1+0/2+1 — только при открытом Bullet-окне), страницу самого турнира — applyRules через новый маркер .swiss__meta (контроль и тип берутся из первого <p>: «30+0 • Классика • Рейтинговый»); при несоответствии прячутся кнопка «Участвовать» и доска. Ссылки на /team в карточках швейцарок по-прежнему скрыты (раздел заблокирован), чат зрителей .mchat — тоже.
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -340,8 +340,12 @@
                         '/tv', '/video', '/streamer', '/broadcast',
                         // Просмотр чужих игр / поиск
                         '/games/search',
-                        // Швейцарка — обычно сильно дольше идёт, потеря времени (Vladimir 2026-05-09)
-                        '/swiss',
+                        // Швейцарка (v0.15.0, Vladimir 2026-07-30): раздел ОТКРЫТ, закрыто только
+                        // создание своего турнира — симметрично Арене (/tournament/new).
+                        // /swiss (расписание) и /swiss/<id> (участие) разрешены ниже в allow,
+                        // контроль времени и вариант фильтруются filterSwissRows + applyRules.
+                        // Раньше весь раздел был закрыт («дольше идёт, потеря времени», 2026-05-09).
+                        '/swiss/new',
                         // Симульный сеанс — играется параллельно несколько партий, длится часами
                         '/simul',
                         // Logout / закрытие аккаунта (v0.7). /logout и /account/close редиректят на signup/login,
@@ -377,6 +381,11 @@
                         '/analysis', '/editor', '/explorer', '/paste', '/opening',
                         // Турниры Арены (фильтр по типу контроля + варианту через initLichessFilter)
                         '/tournament', '/dgt',
+                        // Швейцарские турниры (v0.15.0): /swiss — расписание, /swiss/<id> — участие.
+                        // Те же правила, что у Арены: фильтр строк расписания (filterSwissRows)
+                        // + проверка контроля/типа на странице турнира (.swiss__meta).
+                        // Создание своего турнира (/swiss/new/<team>) остаётся в block выше.
+                        '/swiss',
                         // Системные
                         '/assets', '/manifest'
                     ],
@@ -510,6 +519,18 @@
                 variant: 'tsht-variant',  // всегда блок (Atomic, Crazyhouse, 960, etc.)
                 short: 'tsht-short',       // короткий контроль (Bullet/UltraBullet) — блок
                 textInfo: '.text'          // содержит "X+Y Рейтинговый"
+            },
+            // v0.15.0: строки расписания швейцарок на /swiss.
+            // Разметка (проверено curl 2026-07-30):
+            //   <table class="slist swisses"><tbody><tr>
+            //     <td class="header"><a href="/swiss/<id>"><span class="name">…</span></a></td>
+            //     <td class="infos"><span class="rounds">4/5 туров</span>
+            //                       <span class="setup">30+0 • Классика • Рейтинговый</span></td>
+            // Вариант (Atomic/Crazyhouse/960) на швейцарках подставляется ВМЕСТО типа
+            // («3+0 • Crazyhouse • Рейтинговый»), поэтому проверки textHasAllowedType достаточно.
+            swissRowClasses: {
+                row: 'table.swisses tbody tr',
+                setup: 'td.infos .setup'
             },
             boardSelectors: [ // Возможные селекторы доски для скрытия
                 '.round__app__board.main-board',
@@ -2454,13 +2475,16 @@
             a.tsht.tsht-short,
             a.tsht.tsht-variant,
             .ucc-blocked-tour,
-            .ucc-blocked-tour-bullet { display: none !important; }
+            .ucc-blocked-tour-bullet,
+            .ucc-blocked-swiss,
+            .ucc-blocked-swiss-bullet { display: none !important; }
             /* v0.12: Bullet-окно открыто → перекрываем default-hide для .tsht-short и .ucc-blocked-tour-bullet
                (короткий контроль ≥1+0). .tsht-variant остаётся скрытым ВСЕГДА (Atomic/Crazyhouse/960 — варианты).
                .ucc-blocked-tour остаётся скрытым ВСЕГДА (UltraBullet ¼+0 / ½+0 / кастомные ниже минимума). */
             body.ucc-bullet-window-open .tour-chart__inner a.tsht.tsht-short,
             body.ucc-bullet-window-open a.tsht.tsht-short,
-            body.ucc-bullet-window-open .ucc-blocked-tour-bullet { display: revert !important; }
+            body.ucc-bullet-window-open .ucc-blocked-tour-bullet,
+            body.ucc-bullet-window-open .ucc-blocked-swiss-bullet { display: revert !important; }
             /* v0.11.1: публичный чат «Чат для зрителей» на партиях/наблюдении.
                <section class="mchat"> содержит ленту чужих сообщений с user-link на профили
                и input «Будьте вежливы в чате!» — соцсоставляющая, скрываем целиком. */
@@ -2547,12 +2571,14 @@
         //   .game__meta        — сайдбар партии (app/views/game/side.scala), там же .setup «3+0 • Рейтинговая • Блиц»
         //   .round__app/.round__board — приложение партии (у играющего и у зрителя)
         //   .tour__meta, .tour__meta__head — страница турнира /tournament/<id>
+        //   .swiss__meta       — страница швейцарки /swiss/<id> (v0.15.0; на списке /swiss
+        //                        этого маркера нет — там работает filterSwissRows)
         // Страницы задач (.puzzle__board), тренажёров (.storm__board), анализа
         // (.analyse__board), лобби и списка турниров этих маркеров не имеют → проверка
         // на них не запускается и доска остаётся видимой.
         function hasGameContext() {
             return !!document.querySelector(
-                '.game__meta, .round__app, .round__board, .round__app__board, .tour__meta, .tour__meta__head'
+                '.game__meta, .round__app, .round__board, .round__app__board, .tour__meta, .tour__meta__head, .swiss__meta'
             );
         }
 
@@ -2560,6 +2586,10 @@
             // Главный источник на /tournament/<id>: .tour__meta__head p ("1+0 • Пуля • 27m")
             const metaHead = document.querySelector('.tour__meta__head p')?.textContent?.trim();
             if (metaHead) return metaHead;
+            // v0.15.0: /swiss/<id> — первый <p> в .swiss__meta ("30+0 • Классика • Рейтинговый").
+            // Второй <p> — «4/5 туров • Швейцарский», времени там нет, поэтому берём именно первый.
+            const swissHead = document.querySelector('.swiss__meta section p')?.textContent?.trim();
+            if (swissHead) return swissHead;
             const metaText = document.querySelector('.tour__meta')?.textContent?.trim();
             if (metaText) return metaText;
             const setupText = document.querySelector('.game__meta__infos .setup')?.textContent?.trim();
@@ -2598,6 +2628,46 @@
                 } else if (minutes < baseMinMinutes) {
                     // Bullet (1+0, 2+1) — открывается Bullet-окном через body class
                     card.classList.add('ucc-blocked-tour-bullet');
+                }
+            });
+        }
+
+        // v0.15.0: фильтр строк расписания швейцарок на /swiss.
+        // Логика зеркалит filterTournamentCards (Арена), отличие — разметка: не карточки .tsht,
+        // а строки таблицы, где контроль и тип лежат в одной подписи .setup «30+0 • Классика • Рейтинговый».
+        //   база < 1 мин (UltraBullet ¼+0/½+0)   → .ucc-blocked-swiss        — скрыто всегда
+        //   база < minBaseMinutes (Пуля 1+0/2+1) → .ucc-blocked-swiss-bullet — открывается Bullet-окном
+        //   тип не из allowedGameTypes (варианты Atomic/Crazyhouse/960, у швейцарок вариант стоит
+        //   на месте типа: «3+0 • Crazyhouse») → .ucc-blocked-swiss — скрыто всегда
+        // Класс, а не inline-style: список перерисовывается при обновлении числа участников.
+        function filterSwissRows() {
+            const sCfg = lichessCfg.swissRowClasses;
+            if (!sCfg) return;
+            document.querySelectorAll(sCfg.row).forEach((row) => {
+                if (row.classList.contains('ucc-blocked-swiss')) return;
+                if (row.classList.contains('ucc-blocked-swiss-bullet')) return;
+                const setupText = (row.querySelector(sCfg.setup)?.textContent || '').trim();
+                if (!setupText) return; // строка-заголовок / пустая — не трогаем
+                // 1. Вариант шахмат. Проверяем ПО БАЗОВОМУ списку типов (+ Пуля), а не через
+                //    textHasAllowedType: иначе «1+0 • Crazyhouse» при открытом Bullet-окне
+                //    прошёл бы как обычная Пуля. Вариант скрыт всегда, окно его не открывает.
+                const isBulletLabel = /Пуля|Bullet/i.test(setupText);
+                const isStandardSpeed = isBulletLabel
+                    || lichessCfg.allowedGameTypes.some((type) => setupText.includes(type));
+                if (!isStandardSpeed) {
+                    row.classList.add('ucc-blocked-swiss');
+                    return;
+                }
+                // 2. Контроль времени
+                const minutes = parseLichessTimeFormat(setupText);
+                if (minutes === null) {
+                    if (!textHasAllowedType(setupText)) row.classList.add('ucc-blocked-swiss');
+                    return;
+                }
+                if (minutes < 1) {
+                    row.classList.add('ucc-blocked-swiss');
+                } else if (minutes < baseMinMinutes) {
+                    row.classList.add('ucc-blocked-swiss-bullet');
                 }
             });
         }
@@ -2683,6 +2753,7 @@
             }
 
             filterTournamentCards();
+            filterSwissRows();
             filterHookModal();
 
             if (PATH === '/racer' || PATH.startsWith('/racer/')) {
