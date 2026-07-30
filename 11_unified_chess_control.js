@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.13.1
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката.
+// @version      0.14.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката. v0.14.0: гонка загрузки при перезапуске браузера — ребёнок успевал отправить сообщение в первые 0.5–2 с, пока Tampermonkey ещё не внедрил скрипт (страница отрисована, блок-экран появлялся позже). Скрипт не может выполниться раньше расширения, поэтому окно закрыто с двух других сторон: (1) installSendGuard — предохранитель отправки в мире страницы (unsafeWindow): fetch, XMLHttpRequest, кадры WebSocket с msgSend/forumPost, sendBeacon, capture-слушатель submit и HTMLFormElement.prototype.submit; решение по URL ЗАПРОСА (deny-лист /inbox, /msg, /forum, /team/*/pm, /ublog, /coach, /@/*/note, chess.com /messages, /service/messages, /forum, /clubs/*/forum) и только для POST/PUT/PATCH/DELETE, поэтому легальные запросы сайтов не страдают. Набор текста занимает секунды — к моменту «Отправить» скрипт уже загружен и режет отправку, даже если блок-экран опоздал. (2) sanitizeBlockedUrl — перед document.write адрес вкладки подменяется на безопасный (/training, /puzzles), поэтому восстановление сессии больше не открывает /inbox повторно. Тумблеры SEND_GUARD_ENABLED и SANITIZE_BLOCKED_URL. Полностью гонку снимает только блокировка на уровне браузера (Chrome policy URLBlocklist) — см. README_RUS.md.
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -15,6 +15,7 @@
 // @grant        GM_deleteValue
 // @grant        GM_listValues
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      allcantrip.ru
 // @run-at       document-start
 // ==/UserScript==
@@ -156,6 +157,33 @@
     //   (не суммируется), просто гарантия что час будет.
     const BULLET_REWARD_FORCE_OPEN_DATES = ['2026-05-09']; // Сегодня — особый день, Bullet час доступен
 
+    // ─── 10. ГОНКА ЗАГРУЗКИ ПРИ СТАРТЕ БРАУЗЕРА (v0.14) ──────────────────────
+    // Проблема (Vladimir, 30.07.2026): Tampermonkey стартует не мгновенно. При
+    // перезапуске браузера (особенно при восстановлении сессии, когда сразу
+    // грузится несколько вкладок) страница успевает отрисоваться на 0.5–2 с
+    // раньше скрипта. В это окно ребёнок успевает нажать «Отправить» в переписке,
+    // и только потом появляется блок-экран. Скрипт не может выполниться раньше,
+    // чем его внедрит расширение, поэтому окно закрывается с двух других сторон:
+    //
+    //   1) SEND_GUARD_ENABLED — перехват СЕТИ и submit-форм. Ставится самым
+    //      первым, до блок-экрана, и режет саму отправку сообщения (fetch, XHR,
+    //      WebSocket, sendBeacon, нативный submit формы) независимо от того, с
+    //      какой страницы она уходит и успел ли отрисоваться блок-экран.
+    //      Набрать текст занимает секунды — за это время скрипт уже загружен,
+    //      поэтому нажатие «Отправить» попадает под предохранитель.
+    //
+    //   2) SANITIZE_BLOCKED_URL — заблокированный адрес не остаётся в истории и
+    //      в состоянии вкладки: перед показом блок-экрана URL подменяется на
+    //      безопасный (задачи). Из-за этого перезапуск браузера больше не
+    //      восстанавливает /inbox повторно — восстанавливается уже страница
+    //      задач, и «быстрое открытие заблокированного» приходится делать
+    //      заново руками, когда скрипт уже работает.
+    //
+    // Полностью гонку убирает только блокировка на уровне браузера
+    // (Chrome policy URLBlocklist) — см. README_RUS.md, раздел «Гонка загрузки».
+    const SEND_GUARD_ENABLED = true;
+    const SANITIZE_BLOCKED_URL = true;
+
     // ═════════════════════════════════════════════════════════════════════════
     // 🔧 ТЕХНИЧЕСКАЯ КОНФИГУРАЦИЯ (DOM-селекторы, regex, паттерны URL)
     // НЕ ТРОГАТЬ без знания DOM сайтов — изменения здесь могут сломать фильтр.
@@ -184,7 +212,53 @@
             requestTimeoutMs: 5000
         },
 
+        // v0.14: предохранитель отправки. Работает по URL ЗАПРОСА (не страницы),
+        // поэтому ловит и отправку из виджета на разрешённой странице, и запрос на
+        // socket.lichess.org. Список — DENY (а не default-deny как у страниц):
+        // блокируем только эндпоинты переписки/постинга, чтобы не поломать
+        // легальные POST-запросы сайтов (задачи, партии, телеметрия).
+        // Проверяются только методы, меняющие состояние (POST/PUT/PATCH/DELETE):
+        // читать переписку и так не даёт path-whitelist, а тут важно «не отправить».
+        sendGuard: {
+            enabled: SEND_GUARD_ENABLED,
+            deny: {
+                'lichess.org': [
+                    '^/inbox(/|$)',                        // ЛС: /inbox/<user>, /inbox/new
+                    '^/msg(/|$)',                          // сокет и REST модуля сообщений
+                    '^/forum(/|$)',                         // форум: новая тема, ответ
+                    '^/team/[^/]+/(pm|pm-all|message)',    // рассылка по команде
+                    '^/team/[^/]+/forum',                  // форум команды
+                    '^/ublog(/|$)',                        // блоги (UGC-публикация)
+                    '^/coach(/|$)',                        // заявка тренеру = переписка
+                    '^/@/[^/]+/note'                       // приватные заметки о игроке
+                ],
+                'chess.com': [
+                    '^/messages',                          // страница/эндпоинт ЛС
+                    '^/inbox',
+                    '^/service/messages',                  // внутренний API ЛС
+                    '^/callback/messages',
+                    '^/callback/message',
+                    '^/forum',                             // форум
+                    '^/clubs/[^/]+/(forum|message)'        // клубы: форум и рассылка
+                ]
+            },
+            // Кадры WebSocket, которые режем по содержимому: lichess отправляет ЛС
+            // через сайтовый сокет пакетом {"t":"msgSend","d":{...}} — URL сокета от
+            // версии к версии меняется, содержимое кадра стабильнее.
+            denyWsPayload: [
+                '"t"\\s*:\\s*"msgSend"',
+                '"t"\\s*:\\s*"forumPost"'
+            ],
+            noticeText: 'Отправка сообщений заблокирована родительским контролем.'
+        },
+
         urlBlocker: {
+            // v0.14: куда подменять адрес заблокированной страницы, чтобы вкладка
+            // не восстановилась на неё при следующем запуске браузера.
+            safePaths: {
+                'lichess.org': '/training',
+                'chess.com': '/puzzles'
+            },
             blockedHosts: [ // Домены, которые блокируются всегда
                 'youtube.com',
                 'music.youtube.com',
@@ -564,7 +638,11 @@
         }
         const style = document.createElement('style');
         style.textContent = css;
-        document.documentElement.appendChild(style);
+        // v0.14: на document-start корня может ещё не быть (в замерах headless-Chrome
+        // documentElement === null в самый ранний тик) — тогда откладываем до DOM.
+        const root = document.documentElement || document.head || document.body;
+        if (root) root.appendChild(style);
+        else onReady(() => (document.documentElement || document.head || document.body).appendChild(style));
     }
 
     function pad2(value) {
@@ -740,11 +818,33 @@
             .replaceAll('"', '&quot;');
     }
 
+    // v0.14: заблокированный адрес не должен оставаться адресом вкладки. Сессия
+    // браузера восстанавливает именно его, и на старте ребёнок получает 0.5–2 с
+    // живой страницы, пока Tampermonkey ещё не внедрил скрипт. Подменяем адрес на
+    // безопасный (задачи) ДО document.write: и история, и восстановление сессии
+    // получают уже безопасную страницу. Содержимое блок-экрана не меняется.
+    function sanitizeBlockedUrl() {
+        if (!SANITIZE_BLOCKED_URL) return;
+        try {
+            const safeByHost = (CONFIG.urlBlocker && CONFIG.urlBlocker.safePaths) || {};
+            let safePath = '/';
+            Object.keys(safeByHost).forEach((base) => {
+                if (HOST === base || HOST.endsWith(`.${base}`)) safePath = safeByHost[base];
+            });
+            if (window.location.pathname + window.location.search === safePath) return;
+            window.history.replaceState(null, '', safePath);
+            log('sanitizeBlockedUrl: адрес вкладки подменён на', safePath);
+        } catch (error) {
+            log('sanitizeBlockedUrl: подмена адреса не удалась', error);
+        }
+    }
+
     function replaceDocument(title, heading, message, links = []) {
         const linkHtml = links.map(([label, href]) => {
             return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
         }).join('');
 
+        sanitizeBlockedUrl();
         document.open('text/html', 'replace');
         document.write(`<!DOCTYPE html>
 <html lang="ru">
@@ -1117,6 +1217,230 @@
         }
 
         return todayKey;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v0.14: ПРЕДОХРАНИТЕЛЬ ОТПРАВКИ — второй слой против гонки загрузки.
+    // Блок-экран отвечает за «не открыть», предохранитель — за «не отправить».
+    // Важно: патчим объекты МИРА СТРАНИЦЫ (unsafeWindow) — собственный fetch/XHR
+    // песочницы Tampermonkey сайту не виден, патч в песочнице ничего не даёт.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function getPageWindow() {
+        try {
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow) return unsafeWindow;
+        } catch (error) {
+            // Песочница не отдала unsafeWindow — работаем с обычным window.
+        }
+        return window;
+    }
+
+    function compileSendGuardRules() {
+        const deny = (CONFIG.sendGuard && CONFIG.sendGuard.deny) || {};
+        const compiled = {};
+        Object.keys(deny).forEach((host) => {
+            compiled[host] = (deny[host] || []).map((source) => new RegExp(source));
+        });
+        return compiled;
+    }
+
+    function sendGuardRulesForHost(compiled, host) {
+        for (const base of Object.keys(compiled)) {
+            if (host === base || host.endsWith(`.${base}`)) return compiled[base];
+        }
+        return null;
+    }
+
+    function installSendGuard() {
+        if (!CONFIG.sendGuard || !CONFIG.sendGuard.enabled) return;
+
+        const page = getPageWindow();
+        if (!page) return;
+        try {
+            if (page.__uccSendGuardInstalled) return; // защита от двойного патча
+            page.__uccSendGuardInstalled = true;
+        } catch (error) {
+            // Не смогли поставить маркер — продолжаем, повторный патч не опасен.
+        }
+
+        const compiled = compileSendGuardRules();
+        const wsPayloadRules = ((CONFIG.sendGuard.denyWsPayload) || []).map((source) => new RegExp(source));
+        const MUTATING_METHOD = /^(POST|PUT|PATCH|DELETE)$/;
+        let noticeTimer = null;
+
+        // Ребёнку нужно понимать, почему кнопка «молчит», иначе он решит что баг сайта.
+        function showSendBlockedNotice() {
+            const text = CONFIG.sendGuard.noticeText;
+            if (!text) return;
+            const root = document.body || document.documentElement;
+            if (!root) return;
+            let el = document.getElementById('ucc-send-guard-notice');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'ucc-send-guard-notice';
+                el.style.cssText = [
+                    'position:fixed',
+                    'top:12px',
+                    'left:50%',
+                    'transform:translateX(-50%)',
+                    'z-index:2147483647',
+                    'max-width:min(520px, calc(100vw - 24px))',
+                    'padding:12px 16px',
+                    'border-radius:12px',
+                    'background:#7d2217',
+                    'color:#fff8ef',
+                    'font:700 14px/1.4 Arial, sans-serif',
+                    'text-align:center',
+                    'box-shadow:0 12px 28px rgba(0,0,0,0.28)'
+                ].join(';');
+                root.appendChild(el);
+            } else if (!el.isConnected) {
+                root.appendChild(el);
+            }
+            el.textContent = text;
+            el.style.display = 'block';
+            window.clearTimeout(noticeTimer);
+            noticeTimer = window.setTimeout(() => {
+                el.style.display = 'none';
+            }, 5000);
+        }
+
+        // Решение принимается по URL ЗАПРОСА, а не по URL страницы: отправка может
+        // уходить с разрешённой страницы (виджет, попап) и на другой хост
+        // (socket.lichess.org). Режем только методы, меняющие состояние.
+        function isBlockedRequest(rawUrl, method) {
+            const verb = String(method || 'GET').toUpperCase();
+            if (!MUTATING_METHOD.test(verb)) return false;
+            let parsed;
+            try {
+                parsed = new URL(String(rawUrl), window.location.href);
+            } catch (error) {
+                return false;
+            }
+            const rules = sendGuardRulesForHost(compiled, parsed.hostname.toLowerCase());
+            if (!rules || !rules.length) return false;
+            const target = normalizePath(parsed.pathname) + (parsed.search || '');
+            return rules.some((re) => re.test(target));
+        }
+
+        function block(kind, url) {
+            log(`sendGuard: заблокирована отправка (${kind})`, url || '');
+            showSendBlockedNotice();
+        }
+
+        // 1. fetch — основной канал современных SPA.
+        const nativeFetch = page.fetch;
+        if (typeof nativeFetch === 'function') {
+            page.fetch = function guardedFetch(input, init) {
+                try {
+                    const isRequestObject = input && typeof input === 'object' && 'url' in input;
+                    const url = isRequestObject ? input.url : input;
+                    const method = (init && init.method) || (isRequestObject && input.method) || 'GET';
+                    if (isBlockedRequest(url, method)) {
+                        block('fetch', url);
+                        return Promise.reject(new Error('Blocked by parental control'));
+                    }
+                } catch (error) {
+                    // Неожиданный тип аргументов не должен ломать легальные запросы.
+                }
+                return nativeFetch.apply(this, arguments);
+            };
+        }
+
+        // 2. XMLHttpRequest — старые формы chess.com и часть виджетов.
+        const xhrProto = page.XMLHttpRequest && page.XMLHttpRequest.prototype;
+        if (xhrProto && typeof xhrProto.open === 'function' && typeof xhrProto.send === 'function') {
+            const nativeOpen = xhrProto.open;
+            const nativeSend = xhrProto.send;
+            xhrProto.open = function guardedXhrOpen(method, url) {
+                try {
+                    this.__uccBlocked = isBlockedRequest(url, method);
+                    this.__uccBlockedUrl = url;
+                } catch (error) {
+                    this.__uccBlocked = false;
+                }
+                return nativeOpen.apply(this, arguments);
+            };
+            xhrProto.send = function guardedXhrSend() {
+                if (this.__uccBlocked) {
+                    block('xhr', this.__uccBlockedUrl);
+                    return undefined; // запрос просто не уходит
+                }
+                return nativeSend.apply(this, arguments);
+            };
+        }
+
+        // 3. WebSocket — lichess отправляет ЛС кадром сайтового сокета.
+        //    Конструктор НЕ патчим (сокет несёт игру, риск сломать партию),
+        //    фильтруем только конкретные кадры по содержимому.
+        const nativeWs = page.WebSocket;
+        if (typeof nativeWs === 'function' && nativeWs.prototype && wsPayloadRules.length) {
+            const nativeWsSend = nativeWs.prototype.send;
+            nativeWs.prototype.send = function guardedWsSend(data) {
+                try {
+                    if (typeof data === 'string' && wsPayloadRules.some((re) => re.test(data))) {
+                        block('websocket', data.slice(0, 80));
+                        return undefined;
+                    }
+                } catch (error) {
+                    // Бинарные кадры и прочее — пропускаем как есть.
+                }
+                return nativeWsSend.apply(this, arguments);
+            };
+        }
+
+        // 4. sendBeacon — «отправить и забыть», иногда используется для форм.
+        const pageNavigator = page.navigator;
+        if (pageNavigator && typeof pageNavigator.sendBeacon === 'function') {
+            const nativeBeacon = pageNavigator.sendBeacon;
+            pageNavigator.sendBeacon = function guardedBeacon(url) {
+                try {
+                    if (isBlockedRequest(url, 'POST')) {
+                        block('beacon', url);
+                        return false;
+                    }
+                } catch (error) {
+                    // Игнорируем и отправляем как обычно.
+                }
+                return nativeBeacon.apply(this, arguments);
+            };
+        }
+
+        // 5. Нативный submit формы — он НЕ проходит ни через fetch, ни через XHR,
+        //    поэтому без этого слоя дыра остаётся. Слушатель на document в фазе
+        //    capture отменяет отправку раньше обработчиков сайта, даже если скрипт
+        //    внедрился позже страницы.
+        document.addEventListener('submit', (event) => {
+            const form = event.target;
+            if (!form || typeof form.getAttribute !== 'function') return;
+            const action = form.getAttribute('action') || window.location.href;
+            const method = form.getAttribute('method') || 'GET';
+            if (!isBlockedRequest(action, method)) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            block('submit', action);
+        }, true);
+
+        // 6. form.submit() из кода — событие 'submit' при этом не возникает.
+        const formProto = page.HTMLFormElement && page.HTMLFormElement.prototype;
+        if (formProto && typeof formProto.submit === 'function') {
+            const nativeFormSubmit = formProto.submit;
+            formProto.submit = function guardedFormSubmit() {
+                try {
+                    const action = this.getAttribute('action') || window.location.href;
+                    const method = this.getAttribute('method') || 'GET';
+                    if (isBlockedRequest(action, method)) {
+                        block('form.submit', action);
+                        return undefined;
+                    }
+                } catch (error) {
+                    // Не мешаем обычным формам.
+                }
+                return nativeFormSubmit.apply(this, arguments);
+            };
+        }
+
+        log('sendGuard: предохранитель отправки установлен');
     }
 
     function initUrlBlocker() {
@@ -2524,6 +2848,12 @@
     }
 
     // initRemoteConfig(); // ВРЕМЕННО ОТКЛЮЧЕНО — см. CONFIG.remoteConfig.enabled. Вернёмся к идее, когда добавим HMAC-подпись/whitelist значений.
+
+    // v0.14: предохранитель отправки ставится ПЕРВЫМ — до блок-экрана и до любых
+    // таймеров. Если расширение внедрилось с опозданием (перезапуск браузера),
+    // страница уже отрисована, и единственное, что ещё можно перехватить, — сама
+    // отправка. На заблокированной странице документ всё равно будет заменён ниже.
+    installSendGuard();
 
     if (initUrlBlocker()) {
         return;
