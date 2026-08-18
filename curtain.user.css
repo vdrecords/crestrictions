@@ -1,0 +1,38 @@
+/* ==UserStyle==
+@name         chess-control-curtain
+@namespace    github.com/vdrecords/crestrictions
+@version      1.0.0
+@description  Шторка до загрузки 11_unified_chess_control (Tampermonkey). Прячет контент всех сайтов, пока скрипт не поставит data-ucc-armed на <html>. Закрывает гонку холодного старта браузера: Stylus инжектит CSS мгновенно, Tampermonkey на перезапуске опаздывает на 0.5–2 с. Снятие шторки — только из скрипта (armCurtain, v0.16). Если Tampermonkey отключён/не загрузился — все страницы остаются под шторкой (fail-closed).
+@author       vdrecords
+@homepageURL  https://github.com/vdrecords/crestrictions
+@updateURL    https://raw.githubusercontent.com/vdrecords/crestrictions/main/curtain.user.css
+==/UserStyle== */
+
+/* Код вне @-moz-document применяется ко ВСЕМ сайтам — так и задумано:
+   скрипт работает по default-deny (весь интернет, кроме chess.com/lichess.org,
+   блокируется), поэтому до его загрузки прятать нужно всё. */
+
+/* 1. Контент страницы не рендерится и не кликается, пока скрипт не снял шторку. */
+html:not([data-ucc-armed]) body {
+    display: none !important;
+}
+
+/* 2. Тёмный фон вместо белой вспышки на время загрузки. */
+html:not([data-ucc-armed]) {
+    background: #13100b !important;
+}
+
+/* 3. Экран «Загрузка…». z-index на 1 меньше максимума, чтобы overlay самого
+   скрипта (2147483647) при любом раскладе оказался поверх шторки. */
+html:not([data-ucc-armed])::before {
+    content: "⏳ Загрузка…";
+    position: fixed;
+    inset: 0;
+    z-index: 2147483646;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #13100b;
+    color: #efe2cb;
+    font: 700 20px/1.4 Arial, sans-serif;
+}
