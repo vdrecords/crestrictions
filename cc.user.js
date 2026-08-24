@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.17.2
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката. v0.14.0: гонка загрузки при перезапуске браузера — ребёнок успевал отправить сообщение в первые 0.5–2 с, пока Tampermonkey ещё не внедрил скрипт (страница отрисована, блок-экран появлялся позже). Скрипт не может выполниться раньше расширения, поэтому окно закрыто с двух других сторон: (1) installSendGuard — предохранитель отправки в мире страницы (unsafeWindow): fetch, XMLHttpRequest, кадры WebSocket с msgSend/forumPost, sendBeacon, capture-слушатель submit и HTMLFormElement.prototype.submit; решение по URL ЗАПРОСА (deny-лист /inbox, /msg, /forum, /team/*/pm, /ublog, /coach, /@/*/note, chess.com /messages, /service/messages, /forum, /clubs/*/forum) и только для POST/PUT/PATCH/DELETE, поэтому легальные запросы сайтов не страдают. Набор текста занимает секунды — к моменту «Отправить» скрипт уже загружен и режет отправку, даже если блок-экран опоздал. (2) sanitizeBlockedUrl — перед document.write адрес вкладки подменяется на безопасный (/training, /puzzles), поэтому восстановление сессии больше не открывает /inbox повторно. Тумблеры SEND_GUARD_ENABLED и SANITIZE_BLOCKED_URL. Полностью гонку снимает только блокировка на уровне браузера (Chrome policy URLBlocklist) — см. README_RUS.md. v0.15.0: разрешены швейцарские турниры на lichess (были закрыты целиком с 2026-05-09). Открыты /swiss (расписание) и /swiss/<id> (участие), закрыто только создание своего турнира /swiss/new/<team> — симметрично Арене (/tournament/new). Правила отбора те же, что у Арены: строки расписания фильтрует filterSwissRows (UltraBullet ¼+0/½+0 и варианты Atomic/Crazyhouse/960 скрыты всегда, Пуля 1+0/2+1 — только при открытом Bullet-окне), страницу самого турнира — applyRules через новый маркер .swiss__meta (контроль и тип берутся из первого <p>: «30+0 • Классика • Рейтинговый»); при несоответствии прячутся кнопка «Участвовать» и доска. Ссылки на /team в карточках швейцарок по-прежнему скрыты (раздел заблокирован), чат зрителей .mchat — тоже. v0.16.0: Stylus-шторка — третий слой защиты от гонки загрузки при перезапуске браузера (к sendGuard и sanitizeBlockedUrl из v0.14). Парный userstyle curtain.user.css (расширение Stylus, инжект мгновенный даже на холодном старте) прячет контент ВСЕХ сайтов: body display:none + тёмный экран «Загрузка…», пока на <html> нет атрибута data-ucc-armed. Скрипт ставит атрибут (armCurtain) только когда защита реально активна, в трёх точках: (1) конец инициализации — разрешённая страница; (2) replaceDocument — блок-экран: атрибут зашит прямо в записываемый <html> + повторный armCurtain после document.close на случай реинжекта Stylus; (3) showBlockedOverlay — time-блок по расписанию. При редиректе трекера шторка НЕ снимается — контент запрещённой страницы не мелькает до навигации. Если скрипт упал до конца инициализации или Tampermonkey вовсе не внедрился — шторка остаётся (fail-closed): ребёнок видит «Загрузка…», а не живую страницу. Установка userstyle — raw-ссылка на curtain.user.css (см. README). v0.17.0: новая настройка LICHESS_FULL_UNLOCK_DATES (аналог LICHESS_DISABLED_DATES, но шире) — по дате (YYYY-MM-DD) снимает с lichess.org ВООБЩЕ ВСЕ ограничения скрипта: расписание окон, дневную цель задач (не редиректит на /training), фильтр типов игр/турниров, скрытие ссылок на разделы и блокировку отправки сообщений/постов (urlBlocker + sendGuard). Проверяется единой функцией isLichessFullyUnlockedToday() (HOST === lichess.org && дата в списке), подключена во все точки, где раньше был жёсткий блок: initUrlBlocker, initTimeBlocker.applyState, initTracker, initAutoHideBlockedPaths, initLichessFilter, compileSendGuardRules. Chess.com не затрагивается — ограничение только для lichess. На 2026-08-20 добавлена дата в список по просьбе Vladimir. v0.17.1: критфикс — сообщения на lichess всё ещё блокировались в разблокированный день (ребёнок увидел «Отправка сообщений заблокирована родительским контролем»). Причина — WebSocket-фильтр в installSendGuard режет кадры lichess-сокета ({"t":"msgSend",...}) по СОДЕРЖИМОМУ через отдельный массив wsPayloadRules, а не через host-keyed compiled (который уже был исправлен в v0.17.0 через compileSendGuardRules). isLichessFullyUnlockedToday() теперь проверяется и здесь — при полном снятии ограничений wsPayloadRules = []. v0.17.2: критфикс — «полная разблокировка» lichess на дату снимала и расписание блокировки компьютера, а не только внутренние ограничения lichess: initTimeBlocker.applyState на isLichessFullyUnlockedToday() открывал lichess КРУГЛОСУТОЧНО в этот день, игнорируя SCHEDULE_WEEKLY/SCHEDULE_OVERRIDES — то есть ребёнок мог играть в lichess вне разрешённых окон (например ночью). Убрана проверка isLichessFullyUnlockedToday() из applyState — расписание теперь всегда действует, LICHESS_FULL_UNLOCK_DATES снимает только тип игр/турниров, дневную цель задач и блокировку сообщений, как и задумывалось изначально.
+// @version      0.18.1
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката. v0.14.0: гонка загрузки при перезапуске браузера — ребёнок успевал отправить сообщение в первые 0.5–2 с, пока Tampermonkey ещё не внедрил скрипт (страница отрисована, блок-экран появлялся позже). Скрипт не может выполниться раньше расширения, поэтому окно закрыто с двух других сторон: (1) installSendGuard — предохранитель отправки в мире страницы (unsafeWindow): fetch, XMLHttpRequest, кадры WebSocket с msgSend/forumPost, sendBeacon, capture-слушатель submit и HTMLFormElement.prototype.submit; решение по URL ЗАПРОСА (deny-лист /inbox, /msg, /forum, /team/*/pm, /ublog, /coach, /@/*/note, chess.com /messages, /service/messages, /forum, /clubs/*/forum) и только для POST/PUT/PATCH/DELETE, поэтому легальные запросы сайтов не страдают. Набор текста занимает секунды — к моменту «Отправить» скрипт уже загружен и режет отправку, даже если блок-экран опоздал. (2) sanitizeBlockedUrl — перед document.write адрес вкладки подменяется на безопасный (/training, /puzzles), поэтому восстановление сессии больше не открывает /inbox повторно. Тумблеры SEND_GUARD_ENABLED и SANITIZE_BLOCKED_URL. Полностью гонку снимает только блокировка на уровне браузера (Chrome policy URLBlocklist) — см. README_RUS.md. v0.15.0: разрешены швейцарские турниры на lichess (были закрыты целиком с 2026-05-09). Открыты /swiss (расписание) и /swiss/<id> (участие), закрыто только создание своего турнира /swiss/new/<team> — симметрично Арене (/tournament/new). Правила отбора те же, что у Арены: строки расписания фильтрует filterSwissRows (UltraBullet ¼+0/½+0 и варианты Atomic/Crazyhouse/960 скрыты всегда, Пуля 1+0/2+1 — только при открытом Bullet-окне), страницу самого турнира — applyRules через новый маркер .swiss__meta (контроль и тип берутся из первого <p>: «30+0 • Классика • Рейтинговый»); при несоответствии прячутся кнопка «Участвовать» и доска. Ссылки на /team в карточках швейцарок по-прежнему скрыты (раздел заблокирован), чат зрителей .mchat — тоже. v0.16.0: Stylus-шторка — третий слой защиты от гонки загрузки при перезапуске браузера (к sendGuard и sanitizeBlockedUrl из v0.14). Парный userstyle curtain.user.css (расширение Stylus, инжект мгновенный даже на холодном старте) прячет контент ВСЕХ сайтов: body display:none + тёмный экран «Загрузка…», пока на <html> нет атрибута data-ucc-armed. Скрипт ставит атрибут (armCurtain) только когда защита реально активна, в трёх точках: (1) конец инициализации — разрешённая страница; (2) replaceDocument — блок-экран: атрибут зашит прямо в записываемый <html> + повторный armCurtain после document.close на случай реинжекта Stylus; (3) showBlockedOverlay — time-блок по расписанию. При редиректе трекера шторка НЕ снимается — контент запрещённой страницы не мелькает до навигации. Если скрипт упал до конца инициализации или Tampermonkey вовсе не внедрился — шторка остаётся (fail-closed): ребёнок видит «Загрузка…», а не живую страницу. Установка userstyle — raw-ссылка на curtain.user.css (см. README). v0.17.0: новая настройка LICHESS_FULL_UNLOCK_DATES (аналог LICHESS_DISABLED_DATES, но шире) — по дате (YYYY-MM-DD) снимает с lichess.org ВООБЩЕ ВСЕ ограничения скрипта: расписание окон, дневную цель задач (не редиректит на /training), фильтр типов игр/турниров, скрытие ссылок на разделы и блокировку отправки сообщений/постов (urlBlocker + sendGuard). Проверяется единой функцией isLichessFullyUnlockedToday() (HOST === lichess.org && дата в списке), подключена во все точки, где раньше был жёсткий блок: initUrlBlocker, initTimeBlocker.applyState, initTracker, initAutoHideBlockedPaths, initLichessFilter, compileSendGuardRules. Chess.com не затрагивается — ограничение только для lichess. На 2026-08-20 добавлена дата в список по просьбе Vladimir. v0.17.1: критфикс — сообщения на lichess всё ещё блокировались в разблокированный день (ребёнок увидел «Отправка сообщений заблокирована родительским контролем»). Причина — WebSocket-фильтр в installSendGuard режет кадры lichess-сокета ({"t":"msgSend",...}) по СОДЕРЖИМОМУ через отдельный массив wsPayloadRules, а не через host-keyed compiled (который уже был исправлен в v0.17.0 через compileSendGuardRules). isLichessFullyUnlockedToday() теперь проверяется и здесь — при полном снятии ограничений wsPayloadRules = []. v0.17.2: критфикс — «полная разблокировка» lichess на дату снимала и расписание блокировки компьютера, а не только внутренние ограничения lichess: initTimeBlocker.applyState на isLichessFullyUnlockedToday() открывал lichess КРУГЛОСУТОЧНО в этот день, игнорируя SCHEDULE_WEEKLY/SCHEDULE_OVERRIDES — то есть ребёнок мог играть в lichess вне разрешённых окон (например ночью). Убрана проверка isLichessFullyUnlockedToday() из applyState — расписание теперь всегда действует, LICHESS_FULL_UNLOCK_DATES снимает только тип игр/турниров, дневную цель задач и блокировку сообщений, как и задумывалось изначально. v0.18.0: LICHESS_FULL_UNLOCK_DATES перестал быть «флагом на весь день» и стал ОКНОМ. (1) Полная разблокировка теперь действует только ВНУТРИ окон стандартного расписания дня (SCHEDULE_WEEKLY + SCHEDULE_OVERRIDES): режим LICHESS_FULL_UNLOCK_MODE = 'schedule' (по умолчанию), 'always' возвращает поведение v0.17 (весь календарный день), а LICHESS_FULL_UNLOCK_WINDOWS задаёт свои часы на конкретную дату. Проверка переехала с isLichessFullyUnlockedToday() на isLichessFullyUnlockedNow() — она учитывает и дату, и текущее время. (2) Разблокировка ЗАРАБАТЫВАЕТСЯ: при LICHESS_FULL_UNLOCK_ON_TASK_TARGET=true она включается САМА, как только решено задач >= дневной нормы (TASK_TARGETS_WEEKLY/SPECIAL или явный порог LICHESS_FULL_UNLOCK_TASK_THRESHOLD), и действует до конца текущего окна расписания. (3) Состояние стало динамическим: раньше все модули решали один раз при загрузке страницы, теперь refreshFullUnlockState() тикает вместе с timeBlocker (раз в минуту и по poll) и после каждой засчитанной задачи — CSS-скрытия lichess-фильтра и ссылок на запрещённые разделы лежат в управляемых <style>, которые гасятся и возвращаются на лету, sendGuard пересобирает правила при смене состояния, applyRules снимает inline-скрытия. Норма выполнена в 17:10 — lichess открывается без перезагрузки страницы и закрывается сам в конце окна. (4) Трекер в разблокированный день больше не выключается целиком: снимается только редирект на /racer, счёт задач, окно прогресса и Bullet-награда продолжают работать (раньше initTracker выходил сразу и решённые задачи переставали считаться). (5) В окне прогресса третья строка «🔓 lichess открыт полностью до HH:MM» с причиной (норма/особый день). v0.18.1: дневной минимум задач поднят до 300 в каждый день недели (будни были 100, четверг уже 300, выходные остаются 1000). Прежний набор оставлен закомментированным рядом для быстрого отката. Тот же порог теперь открывает и полную разблокировку lichess, пока LICHESS_FULL_UNLOCK_TASK_THRESHOLD = null.
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -86,7 +86,16 @@
     // ─── 3. ДНЕВНЫЕ ЦЕЛИ ЗАДАЧ ───────────────────────────────────────────────
     // Сколько задач Lichess Racer надо решить, чтобы разблокировать игру.
     // Индексы по дням недели: [Пн, Вт, Ср, Чт, Пт, Сб, Вс].
-    const TASK_TARGETS_WEEKLY = [100, 100, 100, 300, 100, 1000, 1000];
+    // ── ПРЕДЫДУЩИЕ ЦЕЛИ (действовали до 24.08.2026) ──────────────────────────
+    // Будни 100, четверг 300, выходные 1000. Для отката — раскомментировать эту
+    // строку и закомментировать ту, что ниже (активной должна быть ровно ОДНА).
+    // const TASK_TARGETS_WEEKLY = [100, 100, 100, 300, 100, 1000, 1000];
+    // ── АКТИВНЫЕ ЦЕЛИ (с 24.08.2026) ─────────────────────────────────────────
+    // Минимум поднят до 300 в КАЖДЫЙ день: будни 100 → 300, четверг уже был 300,
+    // выходные остаются 1000 (они и так выше нового минимума).
+    // Это же число — порог награды «полная разблокировка lichess», пока
+    // LICHESS_FULL_UNLOCK_TASK_THRESHOLD = null (см. раздел 5.3).
+    const TASK_TARGETS_WEEKLY = [300, 300, 300, 300, 300, 1000, 1000];
 
     // Разовые цели по конкретным датам (формат YYYY-MM-DD: число).
     const TASK_TARGETS_SPECIAL = {
@@ -115,7 +124,41 @@
     // работать по обычным правилам — это ограничение только для lichess.
     // Даты из этого списка НЕ нужно дублировать в LICHESS_DISABLED_DATES —
     // полное снятие уже включает в себя снятие фильтра.
-    const LICHESS_FULL_UNLOCK_DATES = ['2026-08-20']; // Сегодня — снят весь контроль на lichess
+    const LICHESS_FULL_UNLOCK_DATES = ['2026-08-20']; // Пример: в этот день контроль lichess снят
+
+    // ─── 5.2 КОГДА ДЕЙСТВУЕТ ПОЛНАЯ РАЗБЛОКИРОВКА (v0.18) ────────────────────
+    // Разблокировка — это ОКНО, а не «весь день». Даже в разблокированный день
+    // вне окна расписания компьютер закрыт блок-экраном (это делает timeBlocker),
+    // а внутри дня ограничения lichess снимаются только на время, заданное здесь.
+    //   'schedule' — только внутри окон стандартного расписания дня (SCHEDULE_WEEKLY
+    //                + SCHEDULE_OVERRIDES). Рекомендуемый режим: ребёнок получает
+    //                свободный lichess ровно в те часы, когда ему и так можно играть.
+    //   'always'   — весь календарный день (поведение v0.17). Смысл имеет только
+    //                вместе с расширенным расписанием, иначе разницы не видно.
+    const LICHESS_FULL_UNLOCK_MODE = 'schedule';
+
+    // Персональные часы разблокировки на конкретную дату (перебивают MODE).
+    // Формат: 'YYYY-MM-DD': [['HH:MM', 'HH:MM'], ...]. Пустой объект = не используется.
+    // Пример: '2026-08-24': [['16:00', '17:00']] — свободный lichess только этот час.
+    const LICHESS_FULL_UNLOCK_WINDOWS = {
+        // '2026-08-24': [['16:00', '17:00']]
+    };
+
+    // ─── 5.3 РАЗБЛОКИРОВКА КАК НАГРАДА ЗА ЗАДАЧИ (v0.18) ─────────────────────
+    // true — полная разблокировка включается САМА, как только за сегодня решено
+    // задач не меньше дневной нормы (TASK_TARGETS_WEEKLY / TASK_TARGETS_SPECIAL).
+    // Действует до конца текущего окна (см. 5.2) и возвращается на следующий день.
+    // Ребёнку не нужно ничего нажимать и перезагружать страницу — состояние
+    // пересчитывается после каждой засчитанной задачи и раз в минуту.
+    const LICHESS_FULL_UNLOCK_ON_TASK_TARGET = true;
+
+    // Отдельный порог задач для награды. null = использовать дневную норму.
+    // Число — если хочется давать свободу раньше/позже нормы (например 150).
+    const LICHESS_FULL_UNLOCK_TASK_THRESHOLD = null;
+
+    // Даты, когда награда за задачи не действует (наказание, болезнь, поездка).
+    // Формат YYYY-MM-DD. LICHESS_FULL_UNLOCK_DATES этим списком не отменяется.
+    const LICHESS_FULL_UNLOCK_TASK_DISABLED_DATES = [];
 
     // ─── 6. МОДУЛИ (можно по одному отключать) ───────────────────────────────
     const MODULES_ENABLED = {
@@ -510,6 +553,12 @@
         lichess: {
             disableOnDates: LICHESS_DISABLED_DATES,
             fullUnlockDates: LICHESS_FULL_UNLOCK_DATES,
+            // v0.18: окно действия полной разблокировки и награда за задачи.
+            fullUnlockMode: LICHESS_FULL_UNLOCK_MODE,
+            fullUnlockWindows: LICHESS_FULL_UNLOCK_WINDOWS,
+            fullUnlockOnTaskTarget: LICHESS_FULL_UNLOCK_ON_TASK_TARGET,
+            fullUnlockTaskThreshold: LICHESS_FULL_UNLOCK_TASK_THRESHOLD,
+            fullUnlockTaskDisabledDates: LICHESS_FULL_UNLOCK_TASK_DISABLED_DATES,
             // Минимальная база времени в минутах — авто-зеркало MIN_BASE_TIME_SECONDS.
             minBaseMinutes: Math.floor(MIN_BASE_TIME_SECONDS / 60),
             allowedGameTypes: [ // Разрешённые типы игр на Lichess (Блиц / Рапид / Классика)
@@ -627,6 +676,11 @@
         'chessCom.blockedSectionLabels',
         'lichess.disableOnDates',
         'lichess.fullUnlockDates',
+        'lichess.fullUnlockMode',
+        'lichess.fullUnlockWindows',
+        'lichess.fullUnlockOnTaskTarget',
+        'lichess.fullUnlockTaskThreshold',
+        'lichess.fullUnlockTaskDisabledDates',
         'lichess.allowedGameTypes',
         'lichess.blockedTrainingPaths',
         'messageControl.tasksPerMessage'
@@ -652,8 +706,23 @@
         },
         lichess: {
             applyRules: null,
-            blockedTrainingStyleEl: null
+            blockedTrainingStyleEl: null,
+            // v0.18: CSS-скрытия фильтра держим в управляемом <style>, чтобы гасить
+            // и возвращать их на лету при смене состояния полной разблокировки.
+            filterCss: '',
+            syncFullUnlock: null
         },
+        // v0.18: состояние «lichess полностью разблокирован ПРЯМО СЕЙЧАС».
+        // active === null означает «ещё ни разу не считали» — первый расчёт
+        // всегда считается сменой состояния и прогоняет все обработчики.
+        fullUnlock: {
+            active: null,
+            reason: null
+        },
+        autoHide: {
+            css: ''
+        },
+        managedStyles: {},
         chessCom: {
             applyRules: null
         },
@@ -692,13 +761,135 @@
         return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
     }
 
-    // v0.17: полное снятие ограничений с lichess на дату (LICHESS_FULL_UNLOCK_DATES).
-    // Используется во всех модулях, которые могут ограничивать lichess: urlBlocker
-    // (path-фильтр), timeBlocker (расписание), tracker (дневная цель задач),
-    // lichessFilter (тип игры/турнира), sendGuard (блокировка отправки сообщений).
-    // Chess.com этой проверкой не затрагивается — HOST должен быть именно lichess.org.
-    function isLichessFullyUnlockedToday() {
-        return HOST === 'lichess.org' && CONFIG.lichess.fullUnlockDates.includes(formatDateKey());
+    // ═════════════════════════════════════════════════════════════════════════
+    // ПОЛНОЕ СНЯТИЕ ОГРАНИЧЕНИЙ С LICHESS (v0.17, переработано в v0.18)
+    //
+    // Что снимается: path-фильтр разделов (urlBlocker), дневная цель задач
+    // (редирект трекера на /racer), фильтр типов игр и турниров (lichessFilter),
+    // скрытие ссылок на запрещённые разделы, блокировка отправки сообщений и
+    // постов (sendGuard). Chess.com не затрагивается — все проверки требуют
+    // HOST === 'lichess.org'.
+    //
+    // Что НЕ снимается никогда: расписание блокировки компьютера (timeBlocker).
+    // Вне окна расписания страница закрыта блок-экраном в любой день — это
+    // критфикс v0.17.2, и v0.18 его усиливает: сама разблокировка теперь тоже
+    // живёт только внутри окна (см. getFullUnlockWindowsForDate).
+    //
+    // Право на разблокировку даёт одно из двух:
+    //   'date'  — дата в LICHESS_FULL_UNLOCK_DATES (решение родителя);
+    //   'tasks' — решена дневная норма задач (награда, v0.18).
+    // Право на день + попадание в окно = разблокировка активна ПРЯМО СЕЙЧАС.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // Сколько задач нужно решить, чтобы награда включилась.
+    // null в настройке = дневная норма (TASK_TARGETS_WEEKLY / TASK_TARGETS_SPECIAL).
+    function getFullUnlockTaskThreshold(date = new Date()) {
+        const explicit = CONFIG.lichess.fullUnlockTaskThreshold;
+        if (typeof explicit === 'number' && explicit > 0) return explicit;
+        return getDailyTarget(date);
+    }
+
+    // v0.18: заработана ли разблокировка задачами за сегодня.
+    // Счётчик задач за день только растёт и обнуляется в полночь (ensureTrackerDate),
+    // поэтому «заработал» автоматически держится до конца дня и не переносится.
+    function isLichessFullUnlockEarnedByTasks(now = new Date()) {
+        const cfg = CONFIG.lichess;
+        if (!cfg.fullUnlockOnTaskTarget) return false;
+        const dateKey = formatDateKey(now);
+        if ((cfg.fullUnlockTaskDisabledDates || []).includes(dateKey)) return false;
+        const threshold = getFullUnlockTaskThreshold(now);
+        if (!(threshold > 0)) return false;
+        return readNumber(trackerKeys(dateKey).racerSolved, 0) >= threshold;
+    }
+
+    // Право на разблокировку в этот день, без учёта времени: 'date' | 'tasks' | null.
+    // Дата родителя приоритетнее — по ней разблокировка есть даже без задач.
+    function getLichessFullUnlockReason(now = new Date()) {
+        if (CONFIG.lichess.fullUnlockDates.includes(formatDateKey(now))) return 'date';
+        if (isLichessFullUnlockEarnedByTasks(now)) return 'tasks';
+        return null;
+    }
+
+    // v0.18: окна, внутри которых разблокировка действует.
+    //   персональные часы на дату (LICHESS_FULL_UNLOCK_WINDOWS) → они;
+    //   режим 'always'                                          → null (весь день);
+    //   режим 'schedule' (по умолчанию)                          → окна расписания дня.
+    // null означает «ограничения по времени нет», пустой массив — «окон нет вообще».
+    function getFullUnlockWindowsForDate(date = new Date()) {
+        const custom = (CONFIG.lichess.fullUnlockWindows || {})[formatDateKey(date)];
+        if (Array.isArray(custom) && custom.length) {
+            return custom
+                .map(([from, to]) => ({ start: parseTimeString(from), end: parseTimeString(to) }))
+                .filter((windowItem) => windowItem.start < windowItem.end)
+                .sort((a, b) => a.start - b.start);
+        }
+        if (CONFIG.lichess.fullUnlockMode === 'always') return null;
+        return getUnlockedWindowsForDate(date);
+    }
+
+    // Окно разблокировки, в котором мы находимся сейчас (или null).
+    function getActiveFullUnlockWindow(now = new Date()) {
+        const windows = getFullUnlockWindowsForDate(now);
+        if (windows === null) return { start: 0, end: 24 * 60 };
+        const currentMinutes = getCurrentMinutes(now);
+        return windows.find((windowItem) => currentMinutes >= windowItem.start && currentMinutes < windowItem.end) || null;
+    }
+
+    // Время закрытия текущего окна разблокировки для подписи в окне прогресса.
+    function getFullUnlockEndLabel(now = new Date()) {
+        const activeWindow = getActiveFullUnlockWindow(now);
+        if (!activeWindow) return null;
+        if (activeWindow.end >= 24 * 60) return null; // «весь день» — время не показываем
+        return minutesToTimeString(activeWindow.end);
+    }
+
+    // Главная проверка: снят ли контроль с lichess ИМЕННО СЕЙЧАС.
+    // Заменила isLichessFullyUnlockedToday() из v0.17 — та смотрела только на дату.
+    function isLichessFullyUnlockedNow(now = new Date()) {
+        if (HOST !== 'lichess.org') return false;
+        if (!getLichessFullUnlockReason(now)) return false;
+        return !!getActiveFullUnlockWindow(now);
+    }
+
+    // v0.18: пересчёт состояния и переключение всего, что можно переключить на лету.
+    // Зовётся из тика timeBlocker (раз в минуту + poll + focus/visibilitychange) и
+    // после каждой засчитанной задачи. Пока состояние не поменялось — почти бесплатно.
+    // Навигационные проверки (urlBlocker, редирект трекера) сюда не входят: они и так
+    // выполняются на каждой загрузке страницы.
+    function refreshFullUnlockState(force = false) {
+        if (HOST !== 'lichess.org') return false;
+        const active = isLichessFullyUnlockedNow();
+        if (!force && active === RUNTIME.fullUnlock.active) return active;
+        RUNTIME.fullUnlock.active = active;
+        RUNTIME.fullUnlock.reason = active ? getLichessFullUnlockReason() : null;
+        log('full unlock state changed', { active, reason: RUNTIME.fullUnlock.reason });
+        updateLichessBlockedTrainingStyle();
+        updateLichessFilterStyle();
+        updateAutoHidePathsStyle();
+        if (typeof RUNTIME.lichess.syncFullUnlock === 'function') {
+            RUNTIME.lichess.syncFullUnlock(active);
+        }
+        // Окно прогресса только ОБНОВЛЯЕМ. Звать updateProgressWindow безусловно нельзя:
+        // оно создаёт окно, а создаётся оно осознанно лишь на страницах-источниках
+        // (/racer, chess.com /puzzles) — иначе всплывало бы на каждой странице lichess.
+        if (document.getElementById('ucc-progress-window')) {
+            updateProgressWindow();
+        }
+        return active;
+    }
+
+    // v0.18: общий помощник для «включаемых» <style>. Обычный addStyle через
+    // GM_addStyle не возвращает узел и не позволяет погасить правило обратно.
+    function ensureManagedStyle(id) {
+        const cached = RUNTIME.managedStyles[id];
+        if (cached && cached.isConnected) return cached;
+        const el = cached || document.getElementById(id) || document.createElement('style');
+        el.id = id;
+        const root = document.documentElement || document.head || document.body;
+        if (root && !el.isConnected) root.appendChild(el);
+        else if (!root) onReady(() => (document.documentElement || document.head || document.body).appendChild(el));
+        RUNTIME.managedStyles[id] = el;
+        return el;
     }
 
     function parseTimeString(value) {
@@ -1015,11 +1206,25 @@
         return changed;
     }
 
+    // v0.18: CSS-скрытия фильтра lichess (лобби, карточки турниров, чат зрителей)
+    // держим в управляемом <style>, чтобы гасить их на время полной разблокировки
+    // и возвращать, когда окно закрылось.
+    function updateLichessFilterStyle() {
+        if (HOST !== 'lichess.org') return;
+        if (!RUNTIME.lichess.filterCss) return;
+        const styleEl = ensureManagedStyle('ucc-lichess-filter-style');
+        styleEl.textContent = isLichessFullyUnlockedNow() ? '' : RUNTIME.lichess.filterCss;
+    }
+
     function updateLichessBlockedTrainingStyle() {
         if (HOST !== 'lichess.org') return;
-        const css = CONFIG.lichess.blockedTrainingPaths
-            .map((path) => `a[href="${path}"] { display: none !important; }`)
-            .join('\n');
+        // v0.18: при активной полной разблокировке правило гасится (пустой textContent),
+        // при закрытии окна возвращается — без перезагрузки страницы.
+        const css = isLichessFullyUnlockedNow()
+            ? ''
+            : CONFIG.lichess.blockedTrainingPaths
+                .map((path) => `a[href="${path}"] { display: none !important; }`)
+                .join('\n');
 
         if (!RUNTIME.lichess.blockedTrainingStyleEl) {
             const style = document.createElement('style');
@@ -1311,7 +1516,7 @@
         // v0.17: полное снятие ограничений с lichess на дату — отправка сообщений/
         // постов на lichess.org (и *.lichess.org, включая socket) больше не режется.
         // Chess.com-правила не трогаем.
-        if (isLichessFullyUnlockedToday()) delete compiled['lichess.org'];
+        if (isLichessFullyUnlockedNow()) delete compiled['lichess.org'];
         return compiled;
     }
 
@@ -1334,15 +1539,38 @@
             // Не смогли поставить маркер — продолжаем, повторный патч не опасен.
         }
 
-        const compiled = compileSendGuardRules();
         // v0.17.1: wsPayloadRules — отдельный от compiled (host-keyed) массив, фильтрует
         // кадры WebSocket по СОДЕРЖИМОМУ, а не по хосту запроса (сокет lichess шлёт ЛС
-        // пакетом {"t":"msgSend",...}), поэтому isLichessFullyUnlockedToday() тут нужно
+        // пакетом {"t":"msgSend",...}), поэтому полную разблокировку тут нужно
         // проверять отдельно — иначе сообщения на lichess остаются заблокированы даже
         // при полном снятии ограничений (баг, поймано на реальной отправке 20.08.2026).
-        const wsPayloadRules = isLichessFullyUnlockedToday()
-            ? []
-            : ((CONFIG.sendGuard.denyWsPayload) || []).map((source) => new RegExp(source));
+        //
+        // v0.18: предохранитель ставится один раз на всю жизнь страницы, а состояние
+        // разблокировки может смениться прямо в ней (норма выполнена / окно закрылось).
+        // Поэтому наборы правил не захватываются в замыкание, а пересобираются лениво
+        // при КАЖДОЙ смене состояния — regExp компилируются заново только в этот момент,
+        // на горячем пути (каждый POST/кадр сокета) идёт обычное сравнение булева.
+        let rulesState = null;
+        let rulesCheckedAt = 0;
+        let compiledRules = {};
+        let wsPayloadRules = [];
+        function syncGuardRules() {
+            // Троттлинг: guardedWsSend висит на каждом кадре сокета (ходы, пинги),
+            // а проверка состояния читает GM-хранилище. 2 с расхождения безопасны —
+            // окно разблокировки открывается/закрывается на границе минуты.
+            const nowMs = Date.now();
+            if (rulesState !== null && nowMs - rulesCheckedAt < 2000) return;
+            rulesCheckedAt = nowMs;
+            const unlocked = isLichessFullyUnlockedNow();
+            if (rulesState === unlocked) return;
+            rulesState = unlocked;
+            compiledRules = compileSendGuardRules();
+            wsPayloadRules = unlocked
+                ? []
+                : ((CONFIG.sendGuard.denyWsPayload) || []).map((source) => new RegExp(source));
+            log('sendGuard rules rebuilt, lichess unlocked =', unlocked);
+        }
+        syncGuardRules();
         const MUTATING_METHOD = /^(POST|PUT|PATCH|DELETE)$/;
         let noticeTimer = null;
 
@@ -1395,7 +1623,8 @@
             } catch (error) {
                 return false;
             }
-            const rules = sendGuardRulesForHost(compiled, parsed.hostname.toLowerCase());
+            syncGuardRules();
+            const rules = sendGuardRulesForHost(compiledRules, parsed.hostname.toLowerCase());
             if (!rules || !rules.length) return false;
             const target = normalizePath(parsed.pathname) + (parsed.search || '');
             return rules.some((re) => re.test(target));
@@ -1452,11 +1681,15 @@
         //    Конструктор НЕ патчим (сокет несёт игру, риск сломать партию),
         //    фильтруем только конкретные кадры по содержимому.
         const nativeWs = page.WebSocket;
-        if (typeof nativeWs === 'function' && nativeWs.prototype && wsPayloadRules.length) {
+        // v0.18: условие установки — по НАСТРОЙКЕ, а не по текущему набору правил.
+        // Раньше при активной разблокировке (wsPayloadRules = []) патч не ставился
+        // вовсе, и после закрытия окна сокет оставался неприкрытым до перезагрузки.
+        if (typeof nativeWs === 'function' && nativeWs.prototype && ((CONFIG.sendGuard.denyWsPayload) || []).length) {
             const nativeWsSend = nativeWs.prototype.send;
             nativeWs.prototype.send = function guardedWsSend(data) {
                 try {
-                    if (typeof data === 'string' && wsPayloadRules.some((re) => re.test(data))) {
+                    syncGuardRules();
+                    if (typeof data === 'string' && wsPayloadRules.length && wsPayloadRules.some((re) => re.test(data))) {
                         block('websocket', data.slice(0, 80));
                         return undefined;
                     }
@@ -1523,7 +1756,7 @@
 
     function initUrlBlocker() {
         if (!CONFIG.modules.urlBlocker) return false;
-        if (isLichessFullyUnlockedToday()) return false; // v0.17: снят весь контроль на lichess
+        if (isLichessFullyUnlockedNow()) return false; // v0.17: снят весь контроль на lichess
 
         if (hostMatches(CONFIG.urlBlocker.blockedHosts)) {
             replaceDocument(
@@ -1867,8 +2100,12 @@
 
             // v0.17.2: LICHESS_FULL_UNLOCK_DATES снимает только внутренние ограничения
             // lichess (тип игры, сообщения, дневная цель) — расписание блокировки
-            // компьютера действует всегда, isLichessFullyUnlockedToday() здесь
-            // намеренно НЕ проверяется.
+            // компьютера действует всегда, полная разблокировка здесь намеренно
+            // НЕ проверяется.
+            // v0.18: этот же тик — часы для самой разблокировки (см. ниже
+            // refreshFullUnlockState): раз в минуту, на poll, при возврате фокуса
+            // и на visibilitychange. Поэтому окно разблокировки закрывается вовремя
+            // даже на странице, открытой с утра.
             const now = new Date();
             const currentMinutes = getCurrentMinutes(now);
             const windows = getUnlockedWindowsForDate(now);
@@ -1877,6 +2114,8 @@
             // v0.12: Bullet-окно тикает синхронно с проверкой расписания (каждые 10 сек),
             // чтобы открыться/закрыться вовремя даже на страницах без progress-window heartbeat.
             applyBulletWindowState();
+            // v0.18: и полная разблокировка lichess — тем же тиком.
+            refreshFullUnlockState();
 
             if (!activeWindow) {
                 const nextUnlock = getNextUnlockDate(now);
@@ -1941,6 +2180,7 @@
         windowEl.innerHTML = `
             <div class="ucc-progress-row" data-role="tasks-line">🎯 <span data-role="tasks-text">…</span></div>
             <div class="ucc-progress-row" data-role="bullet-line" style="margin-top:6px;display:none">⚡ <span data-role="bullet-text">…</span></div>
+            <div class="ucc-progress-row" data-role="unlock-line" style="margin-top:6px;display:none">🔓 <span data-role="unlock-text">…</span></div>
         `;
         windowEl.style.cssText = [
             'position:fixed',
@@ -2001,6 +2241,18 @@
         };
     }
 
+    // v0.18: подпись третьей строки — что именно открыто и до какого часа.
+    // Здесь НЕЛЬЗЯ звать refreshFullUnlockState (он сам зовёт updateProgressWindow) —
+    // только чтение состояния.
+    function formatFullUnlockStatus(now = new Date()) {
+        if (!isLichessFullyUnlockedNow(now)) return { show: false, text: '' };
+        const reason = getLichessFullUnlockReason(now);
+        const endLabel = getFullUnlockEndLabel(now);
+        const untilPart = endLabel ? ` до ${endLabel}` : '';
+        const reasonPart = reason === 'tasks' ? 'Норма выполнена' : 'Особый день';
+        return { show: true, text: `${reasonPart} — lichess открыт полностью${untilPart}` };
+    }
+
     function updateProgressWindow() {
         if (!CONFIG.modules.tracker || !CONFIG.tracker.showProgressWindow) return;
         const windowEl = createProgressWindow();
@@ -2009,13 +2261,15 @@
         const state = syncTrackerState(formatDateKey());
         const bullet = state.bullet || { enabled: false };
         const bulletInfo = formatBulletStatus(bullet);
+        const unlockInfo = formatFullUnlockStatus();
         const tasksDone = state.remaining === 0;
 
         // v0.12: синхронизируем body class — независимо от visibility, иначе при скрытом окне Bullet-фильтр не сработает.
         applyBulletWindowState();
 
-        // Окно скрывается ТОЛЬКО когда цель выполнена И Bullet-блок неактивен/выключен.
-        const showWindow = !tasksDone || bulletInfo.show;
+        // Окно скрывается ТОЛЬКО когда цель выполнена И Bullet-блок неактивен/выключен
+        // И полная разблокировка не активна (её статус ребёнок должен видеть — v0.18).
+        const showWindow = !tasksDone || bulletInfo.show || unlockInfo.show;
         if (!showWindow) {
             windowEl.style.display = 'none';
             return;
@@ -2046,6 +2300,18 @@
                 bulletLine.style.display = 'none';
             }
         }
+
+        // Строка полной разблокировки (v0.18): «🔓 Норма выполнена — lichess открыт до 18:00»
+        const unlockLine = windowEl.querySelector('[data-role="unlock-line"]');
+        const unlockText = windowEl.querySelector('[data-role="unlock-text"]');
+        if (unlockLine && unlockText) {
+            if (unlockInfo.show) {
+                unlockLine.style.display = '';
+                unlockText.textContent = unlockInfo.text;
+            } else {
+                unlockLine.style.display = 'none';
+            }
+        }
     }
 
     function ensureProgressHeartbeat() {
@@ -2060,6 +2326,9 @@
         writeNumber(keys.racerSolved, nextSolved);
         const state = syncTrackerState(dateKey, { broadcast: true });
         log(`tracker +${count} from ${source}`, state);
+        // v0.18: норма могла быть выполнена именно этой задачей — переключаем
+        // полную разблокировку сразу, без перезагрузки страницы.
+        refreshFullUnlockState();
         updateProgressWindow();
         return state;
     }
@@ -2114,7 +2383,12 @@
 
     function initTracker() {
         if (!CONFIG.modules.tracker) return { redirected: false };
-        if (isLichessFullyUnlockedToday()) return { redirected: false }; // v0.17: дневная цель не требуется на lichess в этот день
+        // v0.18: при полной разблокировке трекер больше НЕ выключается целиком.
+        // Раньше здесь стоял ранний return, и в разблокированный день переставали
+        // считаться решённые задачи, пропадало окно прогресса и не набиралась
+        // Bullet-награда. Теперь снимается только гейт (редирект на /racer) —
+        // см. проверки isLichessFullyUnlockedNow() ниже. Для награды за норму это
+        // принципиально: счётчик обязан продолжать расти после её выполнения.
 
         const dateKey = ensureTrackerDate();
         const state = syncTrackerState(dateKey, { broadcast: true });
@@ -2137,7 +2411,7 @@
                 (activeSources.has('lichess') && currentIsLichessRacerPage) ||
                 currentIsChessComSourcePage;
 
-            if (!currentState.unlockGranted && !currentIsSourcePage) {
+            if (!isLichessFullyUnlockedNow() && !currentState.unlockGranted && !currentIsSourcePage) {
                 const target = getTrainingRedirectTarget();
                 if (HREF !== target) {
                     window.location.replace(target);
@@ -2149,7 +2423,7 @@
 
         RUNTIME.tracker.enforceGate = enforceGate;
 
-        if (!state.unlockGranted && !isSourcePage) {
+        if (!isLichessFullyUnlockedNow() && !state.unlockGranted && !isSourcePage) {
             const target = getTrainingRedirectTarget();
             if (HREF !== target) {
                 window.location.replace(target);
@@ -2204,9 +2478,17 @@
     // Это покрывает 100% типичной разметки lichess/chess.com (включая абсолютные URL).
     // Регексы из policy.blockRegex не транслируются в CSS — они редкие (insights/<user>,
     // settings/close*) и для них уже есть точечный JS-блок path-policy.
+    // v0.18: правило живёт в управляемом <style> и гасится/возвращается по состоянию
+    // полной разблокировки (раньше стоял ранний return — состояние фиксировалось
+    // на момент загрузки страницы и в ней уже не менялось).
+    function updateAutoHidePathsStyle() {
+        if (!RUNTIME.autoHide.css) return;
+        const styleEl = ensureManagedStyle('ucc-autohide-paths-style');
+        styleEl.textContent = isLichessFullyUnlockedNow() ? '' : RUNTIME.autoHide.css;
+    }
+
     function initAutoHideBlockedPaths() {
         if (HOST !== 'chess.com' && HOST !== 'www.chess.com' && HOST !== 'lichess.org') return;
-        if (isLichessFullyUnlockedToday()) return; // v0.17: ссылки на lichess не прячем в этот день
         const policy = getPathPolicyForHost(HOST);
         if (!policy || !Array.isArray(policy.block) || policy.block.length === 0) return;
 
@@ -2218,7 +2500,8 @@
             selectors.push(`a[href*="${p}/"]`);  // /inbox/foo
             selectors.push(`a[href*="${p}?"]`);  // /inbox?bar=baz
         }
-        addStyle(selectors.join(',\n') + ' { display: none !important; }');
+        RUNTIME.autoHide.css = selectors.join(',\n') + ' { display: none !important; }';
+        updateAutoHidePathsStyle();
     }
 
     // v0.7: скрываем кнопки «Выйти из аккаунта» и «Удалить/Закрыть аккаунт» на обоих сайтах.
@@ -2524,7 +2807,34 @@
         if (!CONFIG.modules.lichessFilter) return;
         if (HOST !== 'lichess.org') return;
         if (CONFIG.lichess.disableOnDates.includes(formatDateKey())) return;
-        if (isLichessFullyUnlockedToday()) return; // v0.17: снят весь контроль на lichess
+        // v0.18: раннего return по полной разблокировке здесь БОЛЬШЕ НЕТ. Модуль
+        // инициализируется всегда, а состояние проверяется внутри applyRules и в
+        // управляемом <style> — иначе разблокировка, включившаяся после загрузки
+        // страницы (норма выполнена), не снимала бы фильтр до перезагрузки, а её
+        // окончание не возвращало бы его обратно.
+
+        // Локальная замена safeHide: помечаем узлы, скрытые ИМЕННО фильтром lichess,
+        // чтобы при разблокировке вернуть их и не тронуть чужие скрытия (кнопки
+        // выхода из аккаунта, фильтр chess.com).
+        let hasFilterHidden = false;
+
+        function hideByFilter(element) {
+            if (!element) return;
+            element.style.setProperty('display', 'none', 'important');
+            element.dataset.uccFilterHidden = '1';
+            hasFilterHidden = true;
+        }
+
+        // applyRules при активной разблокировке зовётся на каждом тике observer'а,
+        // поэтому обход DOM делаем только если действительно что-то скрывали.
+        function releaseFilterHidden() {
+            if (!hasFilterHidden) return;
+            hasFilterHidden = false;
+            document.querySelectorAll('[data-ucc-filter-hidden]').forEach((element) => {
+                element.style.removeProperty('display');
+                delete element.dataset.uccFilterHidden;
+            });
+        }
 
         // CSS-инъекция: скрываем кнопки лобби, ведущие к запрещённым потокам.
         // «Бросить вызов другу» = форма прямого контакта с конкретным игроком (соцка) → блок.
@@ -2536,7 +2846,7 @@
         // потерям иммунен: при пересоздании DOM-узла Vue классы сохраняет.
         // .ucc-blocked-tour — class-based hide для custom-турниров (с произвольным X+Y),
         // которые нельзя поймать через .tsht-short (проверка идёт парсером минут).
-        addStyle(`
+        RUNTIME.lichess.filterCss = `
             .lobby__start__button--friend { display: none !important; }
             .tour-chart__inner a.tsht.tsht-short,
             .tour-chart__inner a.tsht.tsht-variant,
@@ -2557,7 +2867,8 @@
                <section class="mchat"> содержит ленту чужих сообщений с user-link на профили
                и input «Будьте вежливы в чате!» — соцсоставляющая, скрываем целиком. */
             section.mchat, .mchat { display: none !important; }
-        `);
+        `;
+        updateLichessFilterStyle();
         // v0.10: ссылки на /tournament/new (и любые другие пути из lichess block-list) скрывает initAutoHideBlockedPaths.
 
         // Универсальный фильтр /training/*: разрешены корень, /training/themes,
@@ -2576,7 +2887,7 @@
         const isBlockedTrainingPath = (path) =>
             typeof path === 'string' && path.startsWith('/training/') && !isAllowedTrainingPath(path);
 
-        if (isBlockedTrainingPath(PATH)) {
+        if (!isLichessFullyUnlockedNow() && isBlockedTrainingPath(PATH)) {
             window.location.replace('https://lichess.org/training');
             return;
         }
@@ -2587,6 +2898,7 @@
             const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
             if (!link) return;
             const href = link.getAttribute('href');
+            if (isLichessFullyUnlockedNow()) return; // v0.18: контроль снят — ссылка работает как обычно
             if (!href || !isBlockedTrainingPath(href)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
@@ -2749,7 +3061,7 @@
             if (!modal) return;
 
             // Скрываем variant toggle (только стандартные шахматы; «С позиции», «Atomic», etc. — блок)
-            modal.querySelectorAll(h.variantToggle).forEach((el) => safeHide(el));
+            modal.querySelectorAll(h.variantToggle).forEach((el) => hideByFilter(el));
 
             // Скрываем tabs: «Игра по переписке» (correspondence) + «Отсутствует» (no-clock = долгие партии).
             // Если активный таб — запрещённый, программно переключаем на «По часам» (один раз).
@@ -2760,7 +3072,7 @@
                 const isBlocked = /перепис|correspondence|Отсутствует|Unlimited/i.test(t);
                 const isAllowedClock = /час|clock|time/i.test(t) && !isBlocked;
                 if (isBlocked) {
-                    safeHide(btn);
+                    hideByFilter(btn);
                     if (btn.classList.contains('active')) needSwitchClock = true;
                 }
                 if (isAllowedClock) allowedTabBtn = btn;
@@ -2775,7 +3087,7 @@
             modal.querySelectorAll(h.presetButtons).forEach((btn) => {
                 const t = (btn.textContent || '').trim();
                 const minutes = parseLichessTimeFormat(t);
-                if (minutes !== null && minutes < effMin) safeHide(btn);
+                if (minutes !== null && minutes < effMin) hideByFilter(btn);
             });
 
             // Перехват submit-кнопок (--hook / --ai / --friend) внутри модалки.
@@ -2815,6 +3127,12 @@
 
         const applyRules = () => {
             if (!CONFIG.modules.lichessFilter) return;
+            // v0.18: контроль снят прямо сейчас — ничего не фильтруем и возвращаем
+            // всё, что успели скрыть до этого (окно могло открыться в этой же сессии).
+            if (isLichessFullyUnlockedNow()) {
+                releaseFilterHidden();
+                return;
+            }
             if (isBlockedTrainingPath(PATH)) {
                 window.location.replace('https://lichess.org/training');
                 return;
@@ -2856,16 +3174,22 @@
             document.querySelectorAll('button, a.button, a[href], [role="button"]').forEach((control) => {
                 const text = (control.textContent || '').trim();
                 if (/Участвовать|Join|Join tournament|Participate/.test(text)) {
-                    safeHide(control);
+                    hideByFilter(control);
                 }
             });
 
             CONFIG.lichess.boardSelectors.forEach((selector) => {
-                safeHide(document.querySelector(selector));
+                hideByFilter(document.querySelector(selector));
             });
         };
 
         RUNTIME.lichess.applyRules = applyRules;
+        // v0.18: вызывается из refreshFullUnlockState при КАЖДОЙ смене состояния.
+        RUNTIME.lichess.syncFullUnlock = (active) => {
+            updateLichessFilterStyle();
+            if (active) releaseFilterHidden();
+            else applyRules();
+        };
         observeBody(applyRules, 150);
         onReady(() => {
             [150, 500, 1200].forEach((delay) => window.setTimeout(applyRules, delay));
