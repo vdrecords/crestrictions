@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         11_unified_chess_control
 // @namespace    http://tampermonkey.net/
-// @version      0.18.1
-// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката. v0.14.0: гонка загрузки при перезапуске браузера — ребёнок успевал отправить сообщение в первые 0.5–2 с, пока Tampermonkey ещё не внедрил скрипт (страница отрисована, блок-экран появлялся позже). Скрипт не может выполниться раньше расширения, поэтому окно закрыто с двух других сторон: (1) installSendGuard — предохранитель отправки в мире страницы (unsafeWindow): fetch, XMLHttpRequest, кадры WebSocket с msgSend/forumPost, sendBeacon, capture-слушатель submit и HTMLFormElement.prototype.submit; решение по URL ЗАПРОСА (deny-лист /inbox, /msg, /forum, /team/*/pm, /ublog, /coach, /@/*/note, chess.com /messages, /service/messages, /forum, /clubs/*/forum) и только для POST/PUT/PATCH/DELETE, поэтому легальные запросы сайтов не страдают. Набор текста занимает секунды — к моменту «Отправить» скрипт уже загружен и режет отправку, даже если блок-экран опоздал. (2) sanitizeBlockedUrl — перед document.write адрес вкладки подменяется на безопасный (/training, /puzzles), поэтому восстановление сессии больше не открывает /inbox повторно. Тумблеры SEND_GUARD_ENABLED и SANITIZE_BLOCKED_URL. Полностью гонку снимает только блокировка на уровне браузера (Chrome policy URLBlocklist) — см. README_RUS.md. v0.15.0: разрешены швейцарские турниры на lichess (были закрыты целиком с 2026-05-09). Открыты /swiss (расписание) и /swiss/<id> (участие), закрыто только создание своего турнира /swiss/new/<team> — симметрично Арене (/tournament/new). Правила отбора те же, что у Арены: строки расписания фильтрует filterSwissRows (UltraBullet ¼+0/½+0 и варианты Atomic/Crazyhouse/960 скрыты всегда, Пуля 1+0/2+1 — только при открытом Bullet-окне), страницу самого турнира — applyRules через новый маркер .swiss__meta (контроль и тип берутся из первого <p>: «30+0 • Классика • Рейтинговый»); при несоответствии прячутся кнопка «Участвовать» и доска. Ссылки на /team в карточках швейцарок по-прежнему скрыты (раздел заблокирован), чат зрителей .mchat — тоже. v0.16.0: Stylus-шторка — третий слой защиты от гонки загрузки при перезапуске браузера (к sendGuard и sanitizeBlockedUrl из v0.14). Парный userstyle curtain.user.css (расширение Stylus, инжект мгновенный даже на холодном старте) прячет контент ВСЕХ сайтов: body display:none + тёмный экран «Загрузка…», пока на <html> нет атрибута data-ucc-armed. Скрипт ставит атрибут (armCurtain) только когда защита реально активна, в трёх точках: (1) конец инициализации — разрешённая страница; (2) replaceDocument — блок-экран: атрибут зашит прямо в записываемый <html> + повторный armCurtain после document.close на случай реинжекта Stylus; (3) showBlockedOverlay — time-блок по расписанию. При редиректе трекера шторка НЕ снимается — контент запрещённой страницы не мелькает до навигации. Если скрипт упал до конца инициализации или Tampermonkey вовсе не внедрился — шторка остаётся (fail-closed): ребёнок видит «Загрузка…», а не живую страницу. Установка userstyle — raw-ссылка на curtain.user.css (см. README). v0.17.0: новая настройка LICHESS_FULL_UNLOCK_DATES (аналог LICHESS_DISABLED_DATES, но шире) — по дате (YYYY-MM-DD) снимает с lichess.org ВООБЩЕ ВСЕ ограничения скрипта: расписание окон, дневную цель задач (не редиректит на /training), фильтр типов игр/турниров, скрытие ссылок на разделы и блокировку отправки сообщений/постов (urlBlocker + sendGuard). Проверяется единой функцией isLichessFullyUnlockedToday() (HOST === lichess.org && дата в списке), подключена во все точки, где раньше был жёсткий блок: initUrlBlocker, initTimeBlocker.applyState, initTracker, initAutoHideBlockedPaths, initLichessFilter, compileSendGuardRules. Chess.com не затрагивается — ограничение только для lichess. На 2026-08-20 добавлена дата в список по просьбе Vladimir. v0.17.1: критфикс — сообщения на lichess всё ещё блокировались в разблокированный день (ребёнок увидел «Отправка сообщений заблокирована родительским контролем»). Причина — WebSocket-фильтр в installSendGuard режет кадры lichess-сокета ({"t":"msgSend",...}) по СОДЕРЖИМОМУ через отдельный массив wsPayloadRules, а не через host-keyed compiled (который уже был исправлен в v0.17.0 через compileSendGuardRules). isLichessFullyUnlockedToday() теперь проверяется и здесь — при полном снятии ограничений wsPayloadRules = []. v0.17.2: критфикс — «полная разблокировка» lichess на дату снимала и расписание блокировки компьютера, а не только внутренние ограничения lichess: initTimeBlocker.applyState на isLichessFullyUnlockedToday() открывал lichess КРУГЛОСУТОЧНО в этот день, игнорируя SCHEDULE_WEEKLY/SCHEDULE_OVERRIDES — то есть ребёнок мог играть в lichess вне разрешённых окон (например ночью). Убрана проверка isLichessFullyUnlockedToday() из applyState — расписание теперь всегда действует, LICHESS_FULL_UNLOCK_DATES снимает только тип игр/турниров, дневную цель задач и блокировку сообщений, как и задумывалось изначально. v0.18.0: LICHESS_FULL_UNLOCK_DATES перестал быть «флагом на весь день» и стал ОКНОМ. (1) Полная разблокировка теперь действует только ВНУТРИ окон стандартного расписания дня (SCHEDULE_WEEKLY + SCHEDULE_OVERRIDES): режим LICHESS_FULL_UNLOCK_MODE = 'schedule' (по умолчанию), 'always' возвращает поведение v0.17 (весь календарный день), а LICHESS_FULL_UNLOCK_WINDOWS задаёт свои часы на конкретную дату. Проверка переехала с isLichessFullyUnlockedToday() на isLichessFullyUnlockedNow() — она учитывает и дату, и текущее время. (2) Разблокировка ЗАРАБАТЫВАЕТСЯ: при LICHESS_FULL_UNLOCK_ON_TASK_TARGET=true она включается САМА, как только решено задач >= дневной нормы (TASK_TARGETS_WEEKLY/SPECIAL или явный порог LICHESS_FULL_UNLOCK_TASK_THRESHOLD), и действует до конца текущего окна расписания. (3) Состояние стало динамическим: раньше все модули решали один раз при загрузке страницы, теперь refreshFullUnlockState() тикает вместе с timeBlocker (раз в минуту и по poll) и после каждой засчитанной задачи — CSS-скрытия lichess-фильтра и ссылок на запрещённые разделы лежат в управляемых <style>, которые гасятся и возвращаются на лету, sendGuard пересобирает правила при смене состояния, applyRules снимает inline-скрытия. Норма выполнена в 17:10 — lichess открывается без перезагрузки страницы и закрывается сам в конце окна. (4) Трекер в разблокированный день больше не выключается целиком: снимается только редирект на /racer, счёт задач, окно прогресса и Bullet-награда продолжают работать (раньше initTracker выходил сразу и решённые задачи переставали считаться). (5) В окне прогресса третья строка «🔓 lichess открыт полностью до HH:MM» с причиной (норма/особый день). v0.18.1: дневной минимум задач поднят до 300 в каждый день недели (будни были 100, четверг уже 300, выходные остаются 1000). Прежний набор оставлен закомментированным рядом для быстрого отката. Тот же порог теперь открывает и полную разблокировку lichess, пока LICHESS_FULL_UNLOCK_TASK_THRESHOLD = null.
+// @version      0.19.0
+// @description  chess.com/lichess.org: задачи + Blitz≥3+0/Rapid/Classical. v0.12: Bullet-награда — окно 10–60 мин в конце расписания при solved≥400 (динамически растёт +10 мин/+100 задач до cap 60). UI прозрачный для ребёнка (4 состояния), работает в любой день недели, master toggle BULLET_REWARD_ENABLED. v0.12.2: компактный 2-строчный layout. v0.12.3: BULLET_REWARD_FORCE_OPEN_DATES — особые дни, 1 час Bullet гарантирован независимо от решённых задач. v0.12.4: критфикс — доска не скрывается на странице Bullet-партии при открытом окне (textHasAllowedType добавляет 'Пуля'/'Bullet'). v0.12.5: вт/чт вечернее окно сдвинуто на 17:00–20:00 (было 18:00) — +1 час игры в эти дни. v0.12.7: пятница — вечернее окно с 15:30 (было 18:00). v0.12.8: разблокирован просмотр+анализ конкретной партии (chess.com /game/<type>/<id>) — ребёнок может разбирать свои партии с /home; раньше выпадал блок-экран «доступны 3 ссылки» (allow-лист имел только /games мн.ч., не /game ед.ч.). v0.12.9: фикс time-overlay «Разблокируется в HH:MM» — подключается к DOM сразу (не через onReady): window.stop() в showBlockedOverlay прерывал загрузку до DOMContentLoaded → отложенный append не срабатывал и overlay не появлялся (на lichess пропадал, на chess.com мигал) + самовосстановление, если SPA вычистил ноду. НЕ связано с v0.12.8. v0.13.0: критфикс после редизайна lichess — доска больше не пропадает на страницах задач и тренажёров. Проверка типа игры (и скрытие доски через boardSelectors) запускается только там, где есть DOM-маркеры реальной партии или турнира; раньше она шла на любой странице, детект падал на document.title («Задачи • lichess.org») и прятал .main-board/.cg-wrap на /training, /storm, /streak, /analysis, /training/coordinate и мини-доски лобби. Замер headless-Chrome 28.07.2026: до фикса — 6 страниц с невидимой доской, после — 0, при этом Bullet-партия (1+0) по-прежнему блокируется, Блиц 3+0 открыт. v0.12.10: defensive — все обращения к document.body (трекер-маркер, окно прогресса, observeBody, racer-текст) с fallback на documentElement. После window.stop() в заблокированном окне body=null → скрипт падал с 'null.appendChild' ПОСЛЕ показа overlay (overlay не ломался, но доинициализация обрывалась, в консоли ошибка). v0.13.1: вечернее окно сдвинуто на 16:00–18:00 во все дни недели (было 18:00–20:00); длительность та же — 2 часа, сместилось только начало. Предыдущий вариант расписания оставлен закомментированным рядом для быстрого отката. v0.14.0: гонка загрузки при перезапуске браузера — ребёнок успевал отправить сообщение в первые 0.5–2 с, пока Tampermonkey ещё не внедрил скрипт (страница отрисована, блок-экран появлялся позже). Скрипт не может выполниться раньше расширения, поэтому окно закрыто с двух других сторон: (1) installSendGuard — предохранитель отправки в мире страницы (unsafeWindow): fetch, XMLHttpRequest, кадры WebSocket с msgSend/forumPost, sendBeacon, capture-слушатель submit и HTMLFormElement.prototype.submit; решение по URL ЗАПРОСА (deny-лист /inbox, /msg, /forum, /team/*/pm, /ublog, /coach, /@/*/note, chess.com /messages, /service/messages, /forum, /clubs/*/forum) и только для POST/PUT/PATCH/DELETE, поэтому легальные запросы сайтов не страдают. Набор текста занимает секунды — к моменту «Отправить» скрипт уже загружен и режет отправку, даже если блок-экран опоздал. (2) sanitizeBlockedUrl — перед document.write адрес вкладки подменяется на безопасный (/training, /puzzles), поэтому восстановление сессии больше не открывает /inbox повторно. Тумблеры SEND_GUARD_ENABLED и SANITIZE_BLOCKED_URL. Полностью гонку снимает только блокировка на уровне браузера (Chrome policy URLBlocklist) — см. README_RUS.md. v0.15.0: разрешены швейцарские турниры на lichess (были закрыты целиком с 2026-05-09). Открыты /swiss (расписание) и /swiss/<id> (участие), закрыто только создание своего турнира /swiss/new/<team> — симметрично Арене (/tournament/new). Правила отбора те же, что у Арены: строки расписания фильтрует filterSwissRows (UltraBullet ¼+0/½+0 и варианты Atomic/Crazyhouse/960 скрыты всегда, Пуля 1+0/2+1 — только при открытом Bullet-окне), страницу самого турнира — applyRules через новый маркер .swiss__meta (контроль и тип берутся из первого <p>: «30+0 • Классика • Рейтинговый»); при несоответствии прячутся кнопка «Участвовать» и доска. Ссылки на /team в карточках швейцарок по-прежнему скрыты (раздел заблокирован), чат зрителей .mchat — тоже. v0.16.0: Stylus-шторка — третий слой защиты от гонки загрузки при перезапуске браузера (к sendGuard и sanitizeBlockedUrl из v0.14). Парный userstyle curtain.user.css (расширение Stylus, инжект мгновенный даже на холодном старте) прячет контент ВСЕХ сайтов: body display:none + тёмный экран «Загрузка…», пока на <html> нет атрибута data-ucc-armed. Скрипт ставит атрибут (armCurtain) только когда защита реально активна, в трёх точках: (1) конец инициализации — разрешённая страница; (2) replaceDocument — блок-экран: атрибут зашит прямо в записываемый <html> + повторный armCurtain после document.close на случай реинжекта Stylus; (3) showBlockedOverlay — time-блок по расписанию. При редиректе трекера шторка НЕ снимается — контент запрещённой страницы не мелькает до навигации. Если скрипт упал до конца инициализации или Tampermonkey вовсе не внедрился — шторка остаётся (fail-closed): ребёнок видит «Загрузка…», а не живую страницу. Установка userstyle — raw-ссылка на curtain.user.css (см. README). v0.17.0: новая настройка LICHESS_FULL_UNLOCK_DATES (аналог LICHESS_DISABLED_DATES, но шире) — по дате (YYYY-MM-DD) снимает с lichess.org ВООБЩЕ ВСЕ ограничения скрипта: расписание окон, дневную цель задач (не редиректит на /training), фильтр типов игр/турниров, скрытие ссылок на разделы и блокировку отправки сообщений/постов (urlBlocker + sendGuard). Проверяется единой функцией isLichessFullyUnlockedToday() (HOST === lichess.org && дата в списке), подключена во все точки, где раньше был жёсткий блок: initUrlBlocker, initTimeBlocker.applyState, initTracker, initAutoHideBlockedPaths, initLichessFilter, compileSendGuardRules. Chess.com не затрагивается — ограничение только для lichess. На 2026-08-20 добавлена дата в список по просьбе Vladimir. v0.17.1: критфикс — сообщения на lichess всё ещё блокировались в разблокированный день (ребёнок увидел «Отправка сообщений заблокирована родительским контролем»). Причина — WebSocket-фильтр в installSendGuard режет кадры lichess-сокета ({"t":"msgSend",...}) по СОДЕРЖИМОМУ через отдельный массив wsPayloadRules, а не через host-keyed compiled (который уже был исправлен в v0.17.0 через compileSendGuardRules). isLichessFullyUnlockedToday() теперь проверяется и здесь — при полном снятии ограничений wsPayloadRules = []. v0.17.2: критфикс — «полная разблокировка» lichess на дату снимала и расписание блокировки компьютера, а не только внутренние ограничения lichess: initTimeBlocker.applyState на isLichessFullyUnlockedToday() открывал lichess КРУГЛОСУТОЧНО в этот день, игнорируя SCHEDULE_WEEKLY/SCHEDULE_OVERRIDES — то есть ребёнок мог играть в lichess вне разрешённых окон (например ночью). Убрана проверка isLichessFullyUnlockedToday() из applyState — расписание теперь всегда действует, LICHESS_FULL_UNLOCK_DATES снимает только тип игр/турниров, дневную цель задач и блокировку сообщений, как и задумывалось изначально. v0.18.0: LICHESS_FULL_UNLOCK_DATES перестал быть «флагом на весь день» и стал ОКНОМ. (1) Полная разблокировка теперь действует только ВНУТРИ окон стандартного расписания дня (SCHEDULE_WEEKLY + SCHEDULE_OVERRIDES): режим LICHESS_FULL_UNLOCK_MODE = 'schedule' (по умолчанию), 'always' возвращает поведение v0.17 (весь календарный день), а LICHESS_FULL_UNLOCK_WINDOWS задаёт свои часы на конкретную дату. Проверка переехала с isLichessFullyUnlockedToday() на isLichessFullyUnlockedNow() — она учитывает и дату, и текущее время. (2) Разблокировка ЗАРАБАТЫВАЕТСЯ: при LICHESS_FULL_UNLOCK_ON_TASK_TARGET=true она включается САМА, как только решено задач >= дневной нормы (TASK_TARGETS_WEEKLY/SPECIAL или явный порог LICHESS_FULL_UNLOCK_TASK_THRESHOLD), и действует до конца текущего окна расписания. (3) Состояние стало динамическим: раньше все модули решали один раз при загрузке страницы, теперь refreshFullUnlockState() тикает вместе с timeBlocker (раз в минуту и по poll) и после каждой засчитанной задачи — CSS-скрытия lichess-фильтра и ссылок на запрещённые разделы лежат в управляемых <style>, которые гасятся и возвращаются на лету, sendGuard пересобирает правила при смене состояния, applyRules снимает inline-скрытия. Норма выполнена в 17:10 — lichess открывается без перезагрузки страницы и закрывается сам в конце окна. (4) Трекер в разблокированный день больше не выключается целиком: снимается только редирект на /racer, счёт задач, окно прогресса и Bullet-награда продолжают работать (раньше initTracker выходил сразу и решённые задачи переставали считаться). (5) В окне прогресса третья строка «🔓 lichess открыт полностью до HH:MM» с причиной (норма/особый день). v0.18.1: дневной минимум задач поднят до 300 в каждый день недели (будни были 100, четверг уже 300, выходные остаются 1000). Прежний набор оставлен закомментированным рядом для быстрого отката. Тот же порог теперь открывает и полную разблокировку lichess, пока LICHESS_FULL_UNLOCK_TASK_THRESHOLD = null. v0.19.0: удалённое управление настройками включено — родитель правит их в Telegram-боте @chessday_control_bot, бот кладёт JSON на https://cfg.allcantrip.ru/tm/chess-control-config.json, скрипт опрашивает файл раз в минуту и применяет изменения НА ЛЕТУ (расписание, дневная норма, свободный lichess, окно Bullet) без перезагрузки страницы и без правки кода на компьютере ребёнка. Что можно менять удалённо — жёстко ограничено списком REMOTE_CONFIG_PATHS: ядро запрета (разрешённые домены и разделы, предохранитель отправки сообщений, селекторы) удалённо НЕ управляется. Три предохранителя: (1) файл недоступен или пуст — действуют локальные настройки этого скрипта, они самые строгие; (2) у кэша появился срок годности cacheMaxAgeMs — при долгой потере связи выданное послабление перестаёт действовать, а не живёт вечно; (3) все разовые послабления привязаны к дате, поэтому протухают сами с календарём. В белый список добавлены bulletReward.* и chessCom.minBaseTimeSeconds — раньше награда Bullet и минимальный контроль времени удалённо не управлялись вовсе. Производное lichess.minBaseMinutes пересчитывается после каждого применения (syncDerivedConfig), иначе минимальный контроль менялся бы только на chess.com. initRemoteConfig() поднимается ПОСЛЕДНИМ, уже после armCurtain: на холодном старте сначала действуют строгие локальные правила, послабления догоняют через мгновение — fail-closed.
 // @author       vdrecords
 // @homepage     https://github.com/vdrecords/crestrictions
 // @supportURL   https://github.com/vdrecords/crestrictions/issues
@@ -16,7 +16,8 @@
 // @grant        GM_listValues
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
-// @connect      allcantrip.ru
+// @connect      cfg.allcantrip.ru
+// @connect      mrwower.fvds.ru
 // @run-at       document-start
 // ==/UserScript==
 
@@ -64,21 +65,13 @@
     // ─── 2. РАЗОВЫЕ ПРАВКИ РАСПИСАНИЯ ────────────────────────────────────────
     // По дате (формат YYYY-MM-DD): patch меняет существующее окно по индексу,
     // extra добавляет дополнительное окно к этому дню.
-    const SCHEDULE_OVERRIDES = {
-        '2025-11-16': { // Продлеваем первое окно
-            patch: [{ index: 0, to: '14:00' }]
-        },
-        '2025-12-23': { // Особое раннее открытие + длинное окно
-            patch: [{ index: 1, from: '16:00' }],
-            extra: [['00:00', '21:00']]
-        },
-        '2026-05-09': { // Разовое продление утреннего окна до 13:00
-            patch: [{ index: 0, to: '13:00' }]
-        },
-        '2026-08-20': { // Разовое продление вечернего окна до 18:30 (было 18:00)
-            patch: [{ index: 1, to: '18:30' }]
-        }
-    };
+    // v0.19: список ПУСТ и должен таким оставаться. Разовые продления выдаёт бот
+    // @chessday_control_bot, и он пишет их в удалённый конфиг с сегодняшней датой,
+    // затирая вчерашнюю. Здесь они больше не накапливаются.
+    // Прежние даты (16.11.25, 23.12.25, 09.05.26, 20.08.26) удалены 12.09.2026 —
+    // все в прошлом, ни на что не влияли, но мешали читать заводское состояние.
+    // Руками сюда вписывать что-либо стоит только если бот недоступен.
+    const SCHEDULE_OVERRIDES = {};
 
     // За сколько минут до конца окна показывать предупреждение «скоро блок».
     const SCHEDULE_WARNING_MINUTES = 20;
@@ -98,10 +91,9 @@
     const TASK_TARGETS_WEEKLY = [300, 300, 300, 300, 300, 1000, 1000];
 
     // Разовые цели по конкретным датам (формат YYYY-MM-DD: число).
-    const TASK_TARGETS_SPECIAL = {
-        '2025-12-19': 200,
-        '2026-05-09': 50  // Разовая цель на сегодня (суббота, обычно 1000)
-    };
+    // v0.19: пусто по той же причине, что и SCHEDULE_OVERRIDES — разовую норму
+    // на сегодня выдаёт бот.
+    const TASK_TARGETS_SPECIAL = {};
 
     // ─── 4. МИНИМАЛЬНЫЙ КОНТРОЛЬ ВРЕМЕНИ ─────────────────────────────────────
     // Всё короче этого — Bullet/UltraBullet → блок. 180 = 3 минуты (Блиц 3+0).
@@ -111,7 +103,7 @@
     // ─── 5. ДАТЫ ОТКЛЮЧЕНИЯ ФИЛЬТРА LICHESS ──────────────────────────────────
     // В эти дни (формат YYYY-MM-DD) фильтр lichess полностью выключен —
     // например, чтобы можно было сыграть «турнирный день» с любыми контролями.
-    const LICHESS_DISABLED_DATES = ['2025-11-16'];
+    const LICHESS_DISABLED_DATES = []; // v0.19: разовые даты выдаёт бот
 
     // ─── 5.1 ДАТЫ ПОЛНОГО СНЯТИЯ ОГРАНИЧЕНИЙ С LICHESS (v0.17) ───────────────
     // В эти дни (формат YYYY-MM-DD) с lichess.org снимаются ВООБЩЕ ВСЕ
@@ -124,7 +116,7 @@
     // работать по обычным правилам — это ограничение только для lichess.
     // Даты из этого списка НЕ нужно дублировать в LICHESS_DISABLED_DATES —
     // полное снятие уже включает в себя снятие фильтра.
-    const LICHESS_FULL_UNLOCK_DATES = ['2026-08-20']; // Пример: в этот день контроль lichess снят
+    const LICHESS_FULL_UNLOCK_DATES = []; // v0.19: свободные дни выдаёт бот
 
     // ─── 5.2 КОГДА ДЕЙСТВУЕТ ПОЛНАЯ РАЗБЛОКИРОВКА (v0.18) ────────────────────
     // Разблокировка — это ОКНО, а не «весь день». Даже в разблокированный день
@@ -214,7 +206,7 @@
     //   Формат YYYY-MM-DD. disabledDates имеет приоритет (если дата и в том, и в этом списке —
     //   Bullet закрыт). Если ребёнок и так заработал 60 мин по задачам — окно всё равно 60 мин
     //   (не суммируется), просто гарантия что час будет.
-    const BULLET_REWARD_FORCE_OPEN_DATES = ['2026-05-09']; // Сегодня — особый день, Bullet час доступен
+    const BULLET_REWARD_FORCE_OPEN_DATES = []; // v0.19: особые дни выдаёт бот
 
     // ─── 10. ГОНКА ЗАГРУЗКИ ПРИ СТАРТЕ БРАУЗЕРА (v0.14) ──────────────────────
     // Проблема (Vladimir, 30.07.2026): Tampermonkey стартует не мгновенно. При
@@ -263,12 +255,31 @@
         },
 
         remoteConfig: {
-            // ВРЕМЕННО ОТКЛЮЧЕНО (2026-05-09): идею удалённого управления допилим позже —
-            // тогда добавим HMAC-подпись/whitelist значений и переключим enabled: true.
-            enabled: false,
-            url: 'https://allcantrip.ru/tm/chess-control-config.json',
+            // v0.19 (12.09.2026): удалённое управление ВКЛЮЧЕНО. Файл на сервере
+            // редактирует Telegram-бот @chessday_control_bot, скрипт опрашивает его
+            // раз в минуту и применяет изменения на лету.
+            //
+            // Почему это безопасно без HMAC-подписи (вопрос из v0.18):
+            //   • файл отдаётся только на чтение по HTTPS — подменить его по дороге
+            //     нельзя без корневого сертификата, а для этого нужны права
+            //     администратора, которых у ребёнка нет;
+            //   • записать в файл можно лишь по ssh с родительского ключа;
+            //   • секрет для подписи всё равно пришлось бы держать в тексте скрипта,
+            //     а скрипт лежит в публичном репозитории — подпись была бы бутафорией.
+            // Остаётся один реальный сценарий: пропала сеть. Его закрывает cacheMaxAgeMs.
+            enabled: true,
+            // Основное имя — свой поддомен: у него собственный лимит на выпуск
+            // сертификатов. Служебное имя хостера mrwower.fvds.ru указывает на тот же
+            // сервер и остаётся в @connect как запасное, но упирается в чужой лимит
+            // Let's Encrypt по домену fvds.ru, поэтому основным быть не может.
+            url: 'https://cfg.allcantrip.ru/tm/chess-control-config.json',
             fetchIntervalMs: 60000,
-            requestTimeoutMs: 5000
+            requestTimeoutMs: 5000,
+            // Срок годности кэша. Кэш хранит ПОСЛАБЛЕНИЯ, выданные родителем, и они не
+            // должны переживать долгую потерю связи с сервером: иначе «сегодня играем
+            // до 21:00», выданное однажды, работало бы вечно при выключенной сети.
+            // Протух — стираем, дальше действуют локальные настройки этого скрипта.
+            cacheMaxAgeMs: 24 * 60 * 60 * 1000
         },
 
         // v0.14: предохранитель отправки. Работает по URL ЗАПРОСА (не страницы),
@@ -659,8 +670,6 @@
         'modules.chessComFilter',
         'modules.lichessFilter',
         'modules.messageControl',
-        'timeBlocker.warningMinutes',
-        'timeBlocker.pollIntervalMs',
         'timeBlocker.weeklyUnlocked',
         'timeBlocker.dateOverrides',
         'tracker.weeklyTargets',
@@ -668,23 +677,39 @@
         'tracker.activeSources',
         'tracker.preferredSource',
         'tracker.enableChessComPuzzlesMode',
-        'tracker.chessComPuzzlesRoot',
         'tracker.showProgressWindow',
-        'tracker.processedRaceKeepDays',
-        'chessCom.blockedTournamentKeywords',
-        'chessCom.blockedTimeLabels',
-        'chessCom.blockedSectionLabels',
+        // v0.19: минимальный контроль времени. Правится вместе с производным
+        // lichess.minBaseMinutes — см. syncDerivedConfig().
+        'chessCom.minBaseTimeSeconds',
+        // v0.19: награда Bullet. До этой версии в списке не было ни одного её поля,
+        // то есть «дать час пули на сегодня» удалённо не работало вообще.
+        'bulletReward.enabled',
+        'bulletReward.threshold',
+        'bulletReward.minutesAtThreshold',
+        'bulletReward.extraMinutesPerStep',
+        'bulletReward.stepTaskCount',
+        'bulletReward.capMinutes',
+        'bulletReward.minBulletSeconds',
+        'bulletReward.disabledDates',
+        'bulletReward.forceOpenDates',
         'lichess.disableOnDates',
         'lichess.fullUnlockDates',
         'lichess.fullUnlockMode',
         'lichess.fullUnlockWindows',
         'lichess.fullUnlockOnTaskTarget',
         'lichess.fullUnlockTaskThreshold',
-        'lichess.fullUnlockTaskDisabledDates',
-        'lichess.allowedGameTypes',
-        'lichess.blockedTrainingPaths',
-        'messageControl.tasksPerMessage'
+        'lichess.fullUnlockTaskDisabledDates'
     ];
+
+    // Чего в списке НЕТ и почему. Всё, что ниже, меняется только правкой этого файла:
+    //   urlBlocker.*            — разрешённые домены и разделы. Ядро default-deny:
+    //                             ошибка здесь открывает переписку;
+    //   sendGuard.*             — предохранитель отправки, последняя линия;
+    //   lichess.blockedTrainingPaths, lichess.allowedGameTypes,
+    //   chessCom.blocked*       — фильтры содержимого, меняются раз в год;
+    //   timeBlocker.warningMinutes, pollIntervalMs, tracker.processedRaceKeepDays,
+    //   tracker.chessComPuzzlesRoot, messageControl.tasksPerMessage — техника.
+    // Правило простое: в списке ровно то, чем управляет бот, и ни поля больше.
 
     const RUNTIME = {
         timeBlocker: {
@@ -1184,6 +1209,23 @@
         return CONFIG.tracker.weeklyTargets[mondayBasedIndex] || CONFIG.tracker.weeklyTargets[0];
     }
 
+    // v0.19: производные значения. Часть конфига собирается ИЗ ДРУГОЙ части один раз,
+    // при сборке LOCAL_CONFIG: lichess.minBaseMinutes — это chessCom.minBaseTimeSeconds,
+    // пересчитанные в минуты. После удалённой правки такую связь надо восстанавливать
+    // руками, иначе минимальный контроль времени поменяется только на chess.com, а на
+    // lichess останется прежним — и половина ограничения тихо разъедется с другой.
+    function syncDerivedConfig() {
+        const seconds = Number(CONFIG.chessCom && CONFIG.chessCom.minBaseTimeSeconds);
+        if (Number.isFinite(seconds) && seconds > 0) {
+            CONFIG.lichess.minBaseMinutes = Math.floor(seconds / 60);
+        }
+    }
+
+    // Накладывает удалённый конфиг поверх локального.
+    // Порядок важен: СНАЧАЛА все управляемые поля откатываются к локальным значениям,
+    // и только потом сверху ложится то, что пришло с сервера. Поэтому удаление поля из
+    // файла на сервере = возврат к настройке, зашитой в скрипт, а пустой файл {} =
+    // полный откат в заводское состояние. Отдельной логики сброса не нужно.
     function applyRemoteConfig(remoteConfig) {
         REMOTE_CONFIG_PATHS.forEach((path) => {
             const localValue = getValueByPath(LOCAL_CONFIG, path);
@@ -1193,6 +1235,7 @@
         });
 
         if (!remoteConfig || typeof remoteConfig !== 'object') {
+            syncDerivedConfig();
             return false;
         }
 
@@ -1203,6 +1246,7 @@
             setValueByPath(CONFIG, path, clonePlain(remoteValue));
             changed = true;
         });
+        syncDerivedConfig();
         return changed;
     }
 
@@ -1285,6 +1329,23 @@
         if (!CONFIG.remoteConfig.enabled) return;
         const cached = readValue(CONFIG.storage.remoteConfigCacheKey, null);
         if (!cached || typeof cached !== 'object') return;
+
+        // v0.19: срок годности кэша. Без этой проверки последний удачно скачанный файл
+        // применялся бы вечно — достаточно было один раз получить щедрое расписание и
+        // потом остаться без сети. Просроченный кэш стираем целиком вместе с метаданными.
+        const meta = readValue(CONFIG.storage.remoteConfigMetaKey, null);
+        const updatedAt = meta ? Number(meta.updatedAt) : NaN;
+        const maxAge = Number(CONFIG.remoteConfig.cacheMaxAgeMs);
+        if (Number.isFinite(maxAge) && maxAge > 0) {
+            const expired = !Number.isFinite(updatedAt) || (Date.now() - updatedAt) > maxAge;
+            if (expired) {
+                log('remote config cache expired, falling back to local settings');
+                deleteValue(CONFIG.storage.remoteConfigCacheKey);
+                deleteValue(CONFIG.storage.remoteConfigMetaKey);
+                return;
+            }
+        }
+
         applyRemoteConfig(cached);
         RUNTIME.remoteConfig.lastAppliedSignature = getRemoteConfigSignature(cached);
         handleConfigApplied('cache');
@@ -3310,7 +3371,9 @@
         window.addEventListener('lichessRacerUnlockFlag', refreshForms);
     }
 
-    // initRemoteConfig(); // ВРЕМЕННО ОТКЛЮЧЕНО — см. CONFIG.remoteConfig.enabled. Вернёмся к идее, когда добавим HMAC-подпись/whitelist значений.
+    // v0.19: удалённый конфиг поднимается НЕ здесь, а в самом конце инициализации —
+    // см. initRemoteConfig() после armCurtain(). Причина в порядке: применение конфига
+    // дёргает initUrlBlocker и RUNTIME.timeBlocker.applyState, а их здесь ещё не существует.
 
     // v0.14: предохранитель отправки ставится ПЕРВЫМ — до блок-экрана и до любых
     // таймеров. Если расширение внедрилось с опозданием (перезапуск браузера),
@@ -3338,6 +3401,14 @@
     // убираем Stylus-шторку. В ветке redirect трекера armCurtain НЕ зовётся
     // сознательно: контент страницы не должен мелькать до ухода на Racer.
     armCurtain();
+
+    // v0.19: удалённый конфиг — ПОСЛЕДНИМ шагом, уже после того как поднялись все модули
+    // и снята шторка. Порядок выбран сознательно, он же и есть fail-closed: на холодном
+    // старте первые доли секунды действуют локальные настройки скрипта (самые строгие),
+    // а послабления с сервера догоняют следом. Обратный порядок дал бы окно, в котором
+    // ребёнок видит вчерашнее послабление раньше, чем сегодняшний запрет.
+    initRemoteConfig();
+
     // initMessageControl(); // LEGACY (v0.3.0+, 2026-05-09): переписка теперь блокируется через path-whitelist
     //                       (/inbox, /forum, /team, /messages, /coach — все падают в block).
     //                       Функция оставлена в коде как backup на случай, если режим
