@@ -1,0 +1,69 @@
+{
+  "_comment": "ПРИМЕР файла, который кладёт на сервер бот @chessday_control_bot. Руками его писать не нужно — это справка о формате.",
+  "_comment_boundary": "Скрипт применяет ТОЛЬКО поля из своего белого списка REMOTE_CONFIG_PATHS. Всё остальное молча игнорируется, в том числе разрешённые домены и разделы: ядро запрета удалённо не управляется.",
+  "_comment_reset": "Чего в файле нет, то скрипт берёт из своих локальных настроек. Пустой объект {} = полный откат к заводским.",
+  "_comment_dates": "Разовые послабления пишутся ТОЛЬКО с сегодняшней датой и затирают вчерашнюю, поэтому строка с датой всегда одна.",
+
+  "timeBlocker": {
+    "_comment": "dateOverrides: patch правит окно по номеру (0 = первое), extra добавляет окно.",
+    "weeklyUnlocked": {
+      "0": [["09:00", "12:00"], ["16:00", "18:00"]],
+      "1": [["09:00", "12:00"], ["16:00", "18:00"]],
+      "2": [["09:00", "12:00"], ["16:00", "18:00"]],
+      "3": [["09:00", "12:00"], ["16:00", "18:00"]],
+      "4": [["09:00", "12:00"], ["16:00", "18:00"]],
+      "5": [["09:00", "12:00"], ["16:00", "18:00"]],
+      "6": [["09:00", "12:00"], ["16:00", "18:00"]]
+    },
+    "dateOverrides": {
+      "2026-09-12": { "patch": [{ "index": 1, "to": "21:23" }] }
+    }
+  },
+
+  "tracker": {
+    "weeklyTargets": [300, 300, 300, 300, 300, 1000, 1000],
+    "specialTargets": { "2026-09-12": 150 },
+    "activeSources": ["lichess"],
+    "preferredSource": "lichess",
+    "enableChessComPuzzlesMode": true,
+    "showProgressWindow": true
+  },
+
+  "lichess": {
+    "_comment": "Свободу включает ТОЛЬКО дата в fullUnlockDates. fullUnlockWindows сами по себе ничего не открывают, они лишь сужают её до части дня.",
+    "fullUnlockDates": ["2026-09-12"],
+    "fullUnlockWindows": { "2026-09-12": [["17:00", "18:30"]] },
+    "disableOnDates": [],
+    "fullUnlockTaskDisabledDates": [],
+    "fullUnlockMode": "schedule",
+    "fullUnlockOnTaskTarget": true,
+    "fullUnlockTaskThreshold": null
+  },
+
+  "bulletReward": {
+    "_comment": "forceOpenDates — час пули независимо от задач. disabledDates закрывает пулю и имеет приоритет.",
+    "enabled": true,
+    "threshold": 400,
+    "minutesAtThreshold": 10,
+    "extraMinutesPerStep": 10,
+    "stepTaskCount": 100,
+    "capMinutes": 60,
+    "minBulletSeconds": 60,
+    "forceOpenDates": ["2026-09-12"],
+    "disabledDates": []
+  },
+
+  "chessCom": {
+    "_comment": "Минимум базы партии в секундах. 180 = Блиц 3+0. Для lichess пересчитывается автоматически.",
+    "minBaseTimeSeconds": 180
+  },
+
+  "modules": {
+    "urlBlocker": true,
+    "timeBlocker": true,
+    "tracker": true,
+    "chessComFilter": true,
+    "lichessFilter": true,
+    "messageControl": true
+  }
+}
