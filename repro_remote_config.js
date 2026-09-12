@@ -138,5 +138,22 @@ const BOT_MANAGES = [
 ].sort();
 check('список совпадает поле в поле', [...M.REMOTE_CONFIG_PATHS].sort(), BOT_MANAGES);
 
+console.log('\n── 8. Порядок инициализации (v0.22) ──');
+// Структурная проверка, а не рассуждение: кэш настроек обязан применяться
+// РАНЬШЕ модулей, принимающих решения. Именно этот порядок был сломан в v0.19,
+// и стоил родителю вечера «почему продление окна не работает».
+const at = (needle) => lines.findIndex((l) => l.trim().startsWith(needle));
+const prime = at('primeConfigFromCache();');
+const guard = at('installSendGuard();');
+const urlb  = at('if (initUrlBlocker()) {');
+const timeb = at('initTimeBlocker();');
+const track = at('const trackerResult = initTracker();');
+const net   = at('initRemoteConfig();');
+check('кэш применяется до предохранителя отправки', prime > 0 && prime < guard, true);
+check('кэш применяется до блокировщика адресов', prime < urlb, true);
+check('кэш применяется до расписания', prime < timeb, true);
+check('кэш применяется до гейта трекера', prime < track, true);
+check('сеть опрашивается ПОСЛЕ решений', net > track, true);
+
 console.log('\n' + (fails ? `❌ ПРОВАЛОВ: ${fails} из ${total}` : `✅ ВСЕ ${total} ПРОВЕРОК ПРОЙДЕНЫ`));
 process.exit(fails ? 1 : 0);
