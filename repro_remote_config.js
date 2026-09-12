@@ -138,6 +138,27 @@ const BOT_MANAGES = [
 ].sort();
 check('список совпадает поле в поле', [...M.REMOTE_CONFIG_PATHS].sort(), BOT_MANAGES);
 
+console.log('\n── 7б. Дубли ключей в правилах путей ──');
+// В литерале объекта повторный ключ молча затирает первый. Один такой дубль уже
+// случился в v0.23: правила для команд были написаны, прошли ревью глазами и не
+// работали, а проверки при этом зеленели — по другой причине. Ловим структурно.
+{
+  const srcText = fs.readFileSync(P, 'utf8');
+  const sectionStart = srcText.indexOf('allowedPaths: {');
+  const sectionEnd = srcText.indexOf('quickLinks', sectionStart) > 0
+    ? srcText.indexOf('safePaths', sectionStart) : srcText.length;
+  const section = srcText.slice(sectionStart, srcText.indexOf('\n        },', sectionStart));
+  ['chess.com', 'lichess.org'].forEach((host) => {
+    const from = section.indexOf(`'${host}': {`);
+    const to = section.indexOf("': {", from + host.length + 6);
+    const body = section.slice(from, to > 0 ? to : section.length);
+    ['block:', 'blockRegex:', 'allow:', 'allowRegex:'].forEach((key) => {
+      const count = (body.match(new RegExp('\\n\\s+' + key.replace(':', ':'), 'g')) || []).length;
+      check(`${host}: ключ ${key} ровно один`, count <= 1, true);
+    });
+  });
+}
+
 console.log('\n── 8. Порядок инициализации (v0.22) ──');
 // Структурная проверка, а не рассуждение: кэш настроек обязан применяться
 // РАНЬШЕ модулей, принимающих решения. Именно этот порядок был сломан в v0.19,
