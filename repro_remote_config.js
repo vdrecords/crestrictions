@@ -133,7 +133,8 @@ const BOT_MANAGES = [
   'bulletReward.minBulletSeconds','bulletReward.disabledDates','bulletReward.forceOpenDates',
   'lichess.disableOnDates','lichess.fullUnlockDates','lichess.fullUnlockMode',
   'lichess.fullUnlockWindows','lichess.fullUnlockOnTaskTarget','lichess.fullUnlockTaskThreshold',
-  'lichess.fullUnlockTaskDisabledDates'
+  'lichess.fullUnlockTaskDisabledDates',
+  'telemetry.enabled'
 ].sort();
 check('список совпадает поле в поле', [...M.REMOTE_CONFIG_PATHS].sort(), BOT_MANAGES);
 
