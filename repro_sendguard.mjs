@@ -15,7 +15,7 @@ const require = createRequire('/opt/homebrew/lib/node_modules/');
 const puppeteer = require('/opt/homebrew/lib/node_modules/puppeteer-core');
 
 const HERE = decodeURIComponent(new URL('.', import.meta.url).pathname); // cert.pem / key.pem рядом
-const SCRIPT_PATH = '/Users/vd/Documents/Vibe coding/Tampermonkey/chess control/crestrictions-main/11_unified_chess_control.js';
+const SCRIPT_PATH = HERE + '/11_unified_chess_control.js';
 // Стенд открывает расписание на все сутки: иначе таймблокер зовёт window.stop() и
 // документ остаётся без body — тестовой формы просто нет в DOM (проверено 30.07).
 const userscript = fs.readFileSync(SCRIPT_PATH, 'utf8').replaceAll("'16:00', '18:00'", "'00:00', '23:59'");

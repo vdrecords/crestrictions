@@ -101,7 +101,9 @@ console.log('\n── 5. Ядро запрета удалённо НЕ упра�
 const attack = {
   urlBlocker: { allowedHosts: ['youtube.com','lichess.org','chess.com'], blockedHosts: [] },
   sendGuard: { enabled: false },
-  lichess: { blockedTrainingPaths: [] }
+  lichess: { blockedTrainingPaths: [] },
+  // v0.24: список хостов ютуба — такое же ядро запрета, как домены выше.
+  youtube: { hosts: ['lichess.org','mail.google.com','yandex.ru'] }
 };
 M.applyRemoteConfig(attack);
 check('домены не подменились', M.CONFIG.urlBlocker.allowedHosts, ['chess.com','lichess.org']);
@@ -109,6 +111,7 @@ check('блок-лист цел', M.CONFIG.urlBlocker.blockedHosts.includes('you
 check('предохранитель отправки цел', M.CONFIG.sendGuard.enabled, true);
 check('закрытые темы целы', M.CONFIG.lichess.blockedTrainingPaths.length > 0, true);
 check('типы игр целы', M.CONFIG.lichess.allowedGameTypes.includes('Блиц'), true);
+check('хосты ютуба целы', M.CONFIG.youtube.hosts, ['youtube.com','youtu.be']);
 
 console.log('\n── 6. Белый список содержит то, что обещано ──');
 const need = ['bulletReward.forceOpenDates','bulletReward.disabledDates','bulletReward.threshold',
@@ -117,7 +120,8 @@ const need = ['bulletReward.forceOpenDates','bulletReward.disabledDates','bullet
 need.forEach(p => check('в списке: ' + p, M.REMOTE_CONFIG_PATHS.includes(p), true));
 const forbidden = ['urlBlocker.allowedHosts','urlBlocker.allowedPaths','urlBlocker.blockedHosts',
   'sendGuard.enabled','lichess.blockedTrainingPaths','lichess.allowedGameTypes',
-  'chessCom.blockedTournamentKeywords','timeBlocker.warningMinutes','messageControl.tasksPerMessage'];
+  'chessCom.blockedTournamentKeywords','timeBlocker.warningMinutes','messageControl.tasksPerMessage',
+  'youtube.hosts','youtube.unlockMode'];
 forbidden.forEach(p => check('НЕ в списке: ' + p, M.REMOTE_CONFIG_PATHS.includes(p), false));
 
 console.log('\n── 7. Граница: список = ровно то, чем управляет бот ──');
@@ -134,6 +138,7 @@ const BOT_MANAGES = [
   'lichess.disableOnDates','lichess.fullUnlockDates','lichess.fullUnlockMode',
   'lichess.fullUnlockWindows','lichess.fullUnlockOnTaskTarget','lichess.fullUnlockTaskThreshold',
   'lichess.fullUnlockTaskDisabledDates',
+  'youtube.unlockDates','youtube.unlockWindows','youtube.afterTaskTarget',
   'telemetry.enabled'
 ].sort();
 check('список совпадает поле в поле', [...M.REMOTE_CONFIG_PATHS].sort(), BOT_MANAGES);
