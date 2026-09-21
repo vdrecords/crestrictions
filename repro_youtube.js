@@ -29,7 +29,7 @@ const NAMES = ['pad2', 'formatDateKey', 'parseTimeString', 'minutesToTimeString'
   'clonePlain', 'getValueByPath', 'setValueByPath', 'syncDerivedConfig', 'applyRemoteConfig',
   'getUnlockedWindowsForDate', 'getDailyTarget', 'readValue', 'readNumber', 'trackerKeys',
   'hostMatches', 'isYoutubeHost', 'isDailyTaskTargetReached', 'getYoutubeUnlockWindowsForDate',
-  'getActiveYoutubeUnlockWindow', 'isYoutubeUnlockedNow'];
+  'getActiveYoutubeUnlockWindow', 'isYoutubeGrantActiveNow', 'isYoutubeUnlockedNow'];
 
 const harness = `
 ${settings}
@@ -43,6 +43,7 @@ ${paths}
 ${NAMES.map(fn).join('\n\n')}
 module.exports = {
   CONFIG, LOCAL_CONFIG, REMOTE_CONFIG_PATHS, applyRemoteConfig, isYoutubeUnlockedNow,
+  isYoutubeGrantActiveNow,
   getYoutubeUnlockWindowsForDate, minutesToTimeString, trackerKeys, formatDateKey,
   setHost: (h) => { HOST = h; },
   setStore: (k, v) => { STORE[k] = v; },
@@ -96,6 +97,9 @@ M.setHost('music.youtube.com');
 check('открыт на music.youtube.com', M.isYoutubeUnlockedNow(at(17)), true);
 M.setHost('youtu.be');
 check('открыт на youtu.be', M.isYoutubeUnlockedNow(at(17)), true);
+M.setHost('lichess.org');
+check('разрешение ВИДНО с чужого хоста (для ссылки на блок-экране)', M.isYoutubeGrantActiveNow(at(17)), true);
+check('но сам чужой хост от этого не открыт', M.isYoutubeUnlockedNow(at(17)), false);
 M.setHost('www.youtube.com');
 
 console.log('\n── 4. Персональные часы сужают день ──');

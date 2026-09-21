@@ -75,7 +75,8 @@ const GM_STUB = (solved) => `(() => { window.__store = {}; window.__solved = ${s
     const out = await page.evaluate(() => ({
       armed: document.documentElement.getAttribute('data-ucc-armed'),
       realPage: !!document.getElementById('real-page'),
-      blocker: (document.querySelector('.ucc-blocker h1') || {}).textContent || null
+      blocker: (document.querySelector('.ucc-blocker h1') || {}).textContent || null,
+      links: [...document.querySelectorAll('.ucc-links a')].map((a) => a.textContent)
     })).catch(() => ({ armed: null, realPage: false, blocker: '(ушли со страницы)' }));
     await page.close();
     return { ...out, errors };
@@ -108,6 +109,16 @@ const GM_STUB = (solved) => `(() => { window.__store = {}; window.__solved = ${s
   r = await visit({ url: 'https://www.youtube.com/', host: 'https://www.youtube.com/', script: RAW, freeze: ['fetch'] });
   check('ютуб БЕЗ разрешения закрыт', r.blocker, 'Страница заблокирована');
   check('шторка снята и на нём', r.armed, '1');
+
+  console.log('\n── 4б. Блок-экран показывает дорогу к открытому ютубу ──');
+  // Ребёнок не набирает адрес целиком: слово из адресной строки уходит в поиск,
+  // и блок-экран выпадает на google.com. Если там только ссылки на шахматы, он
+  // делает вывод, что ютуб закрыт, хотя тот открыт (журнал 21.09, 09:05).
+  r = await visit({ url: 'https://www.google.com/search?q=youtube', host: 'https://www.google.com/', script: SCRIPT_YT });
+  check('поиск закрыт, как и раньше', r.blocker, 'Доступ закрыт');
+  check('но ссылка на ютуб предложена', r.links && r.links[0], 'YouTube — сегодня открыт');
+  r = await visit({ url: 'https://www.google.com/search?q=youtube', host: 'https://www.google.com/', script: RAW });
+  check('без разрешения ссылки на ютуб нет', (r.links || []).some((t) => t.includes('YouTube')), false);
 
   console.log('\n── 5. Регрессия: предохранитель отправки жив там, где нужен ──');
   // На хосте с правилами отправки замороженный интринсик — отказ последней линии,
