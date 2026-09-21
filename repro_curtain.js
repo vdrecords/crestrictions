@@ -60,12 +60,19 @@ const GM_STUB = (solved) => `(() => { window.__store = {}; window.__solved = ${s
     if (!ok) fails++;
     console.log((ok ? '✅ ' : '❌ ') + n + ' → ' + JSON.stringify(a) + (ok ? '' : ' (ждали ' + JSON.stringify(e) + ')')); };
 
-  async function visit({ url, host, script, freeze = [], solved = 1000, hour = 17 }) {
+  async function visit({ url, host, script, freeze = [], solved = 1000, hour = 17, tt = false }) {
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 120)));
     await page.setRequestInterception(true);
-    page.on('request', (r) => r.url().startsWith(host) ? r.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: HTML }) : r.abort());
+    page.on('request', (r) => {
+      if (!r.url().startsWith(host)) return r.abort();
+      const headers = { 'content-type': 'text/html; charset=utf-8' };
+      // Trusted Types включаются заголовком, как на youtube.com: под ним
+      // innerHTML и document.write бросают TypeError, а не «просто не работают».
+      if (tt) headers['content-security-policy'] = "require-trusted-types-for 'script'; trusted-types ytpolicy";
+      return r.respond({ status: 200, headers, body: HTML });
+    });
     if (freeze.length) await page.evaluateOnNewDocument(FREEZE(freeze));
     await page.evaluateOnNewDocument(clockPatch(hour, 0));
     await page.evaluateOnNewDocument(GM_STUB(solved));
@@ -127,6 +134,27 @@ const GM_STUB = (solved) => `(() => { window.__store = {}; window.__solved = ${s
   check('и блок-экран показывает дорогу к ютубу', r.links && r.links[0], 'YouTube — сегодня открыт');
   r = await visit({ url: 'https://mail.google.com/', host: 'https://mail.google.com/', script: RAW });
   check('без разрешения ссылки на ютуб нет', (r.links || []).some((t) => t.includes('YouTube')), false);
+
+  console.log('\n── 6. Сайт с Trusted Types — то есть настоящий youtube.com ──');
+  // Journal 21.09 07:16: «urlblock allowed | ютуб открыт на сегодня», сразу за
+  // ним «TypeError: Failed to set the innerHTML property … requires TrustedHTML»
+  // — и вечная «Загрузка…». Блокировщик пропустил, а убил скрипт СЛЕДУЮЩИЙ шаг:
+  // applyState на РАЗРЕШЁННОЙ странице зовёт hideBlockedOverlay, тот создаёт
+  // overlay расписания, и присваивание innerHTML бросает.
+  r = await visit({ url: 'https://www.youtube.com/', host: 'https://www.youtube.com/', script: SCRIPT_YT, tt: true });
+  check('шторка снята', r.armed, '1');
+  check('контент виден', r.realPage, true);
+  check('инициализация не упала', r.errors, []);
+
+  // И обратная сторона: на таком сайте обязан работать и ЗАПРЕТ. Раньше
+  // document.write тоже бросал, блок-экран не появлялся вовсе, и запрещённая
+  // страница просто висела под шторкой.
+  r = await visit({ url: 'https://www.youtube.com/', host: 'https://www.youtube.com/', script: RAW, tt: true });
+  check('без разрешения блок-экран показан', r.blocker, 'Страница заблокирована');
+  check('и шторка на нём снята', r.armed, '1');
+  r = await visit({ url: 'https://mail.google.com/', host: 'https://mail.google.com/', script: SCRIPT_YT, tt: true });
+  check('почта закрыта и под Trusted Types', r.blocker, 'Доступ закрыт');
+  check('со ссылкой-дорогой на ютуб', r.links && r.links[0], 'YouTube — сегодня открыт');
 
   console.log('\n── 5. Регрессия: предохранитель отправки жив там, где нужен ──');
   // На хосте с правилами отправки замороженный интринсик — отказ последней линии,
