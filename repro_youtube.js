@@ -29,7 +29,8 @@ const NAMES = ['pad2', 'formatDateKey', 'parseTimeString', 'minutesToTimeString'
   'clonePlain', 'getValueByPath', 'setValueByPath', 'syncDerivedConfig', 'applyRemoteConfig',
   'getUnlockedWindowsForDate', 'getDailyTarget', 'readValue', 'readNumber', 'trackerKeys',
   'hostMatches', 'isYoutubeHost', 'isDailyTaskTargetReached', 'getYoutubeUnlockWindowsForDate',
-  'getActiveYoutubeUnlockWindow', 'isYoutubeGrantActiveNow', 'isYoutubeUnlockedNow'];
+  'getActiveYoutubeUnlockWindow', 'isYoutubeGrantActiveNow', 'isYoutubeCompanionHost',
+  'isYoutubeGrantHost', 'isYoutubeUnlockedNow'];
 
 const harness = `
 ${settings}
@@ -43,7 +44,7 @@ ${paths}
 ${NAMES.map(fn).join('\n\n')}
 module.exports = {
   CONFIG, LOCAL_CONFIG, REMOTE_CONFIG_PATHS, applyRemoteConfig, isYoutubeUnlockedNow,
-  isYoutubeGrantActiveNow,
+  isYoutubeGrantActiveNow, isYoutubeCompanionHost, isYoutubeHost,
   getYoutubeUnlockWindowsForDate, minutesToTimeString, trackerKeys, formatDateKey,
   setHost: (h) => { HOST = h; },
   setStore: (k, v) => { STORE[k] = v; },
@@ -86,7 +87,13 @@ check('завтра — закрыт', M.isYoutubeUnlockedNow(new Date(2026, 8, 
 
 console.log('\n── 3. Разрешение не протекает на другие домены ──');
 // Ради этой проверки прибор и написан: выдаём разрешение и обходим соседей.
-['lichess.org', 'www.chess.com', 'yandex.ru', 'chromewebstore.google.com',
+['lichess.org', 'www.chess.com', 'yandex.ru',
+ // Соседи по *.google.com. Их и стережёт точное сравнение спутников: почта,
+ // диск, документы, вход в аккаунт и — важнее всего — магазин расширений,
+ // через который родительский контроль и сносят.
+ 'chromewebstore.google.com', 'chrome.google.com', 'mail.google.com',
+ 'drive.google.com', 'docs.google.com', 'accounts.google.com',
+ 'google.com.evil.ru', 'notgoogle.com',
  'youtube.com.evil.ru', 'notyoutube.com'].forEach((host) => {
   M.setHost(host);
   check('закрыт на ' + host, M.isYoutubeUnlockedNow(at(17)), false);
@@ -100,6 +107,18 @@ check('открыт на youtu.be', M.isYoutubeUnlockedNow(at(17)), true);
 M.setHost('lichess.org');
 check('разрешение ВИДНО с чужого хоста (для ссылки на блок-экране)', M.isYoutubeGrantActiveNow(at(17)), true);
 check('но сам чужой хост от этого не открыт', M.isYoutubeUnlockedNow(at(17)), false);
+
+console.log('\n── 3б. Спутник: поиск открыт, остальной гугл — нет ──');
+// Спутники сверяются ТОЧНЫМ совпадением хоста. Запись 'google.com' в обычной
+// проверке открыла бы весь *.google.com — почту, диск и магазин расширений,
+// которым родительский контроль и обходят. Соседей стерегут проверки в п.3.
+['google.com', 'www.google.com'].forEach((host) => {
+  M.setHost(host);
+  check('открыт поиск ' + host, M.isYoutubeUnlockedNow(at(17)), true);
+});
+M.setHost('www.google.com');
+check('поиск — спутник, а не сам ютуб', [M.isYoutubeCompanionHost(), M.isYoutubeHost()], [true, false]);
+check('вне окна спутник тоже закрыт', M.isYoutubeUnlockedNow(at(21)), false);
 M.setHost('www.youtube.com');
 
 console.log('\n── 4. Персональные часы сужают день ──');
@@ -144,6 +163,9 @@ M.applyRemoteConfig({
   youtube: { unlockDates: [DAY], hosts: ['lichess.org', 'yandex.ru', 'mail.google.com'] }
 });
 check('хосты остались заводскими', M.CONFIG.youtube.hosts, ['youtube.com', 'youtu.be']);
+M.applyRemoteConfig({ youtube: { unlockDates: [DAY], companionHosts: ['mail.google.com', 'chromewebstore.google.com'] } });
+check('спутники тоже не подменились', M.CONFIG.youtube.companionHosts, ['google.com', 'www.google.com']);
+check('в белом списке спутников нет', M.REMOTE_CONFIG_PATHS.includes('youtube.companionHosts'), false);
 M.setHost('yandex.ru');
 check('яндекс так и не открылся', M.isYoutubeUnlockedNow(at(17)), false);
 M.setHost('www.youtube.com');

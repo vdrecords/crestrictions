@@ -110,14 +110,22 @@ const GM_STUB = (solved) => `(() => { window.__store = {}; window.__solved = ${s
   check('ютуб БЕЗ разрешения закрыт', r.blocker, 'Страница заблокирована');
   check('шторка снята и на нём', r.armed, '1');
 
-  console.log('\n── 4б. Блок-экран показывает дорогу к открытому ютубу ──');
+  console.log('\n── 4б. Поиск открывается вместе с ютубом, остальной гугл — нет ──');
   // Ребёнок не набирает адрес целиком: слово из адресной строки уходит в поиск,
-  // и блок-экран выпадает на google.com. Если там только ссылки на шахматы, он
-  // делает вывод, что ютуб закрыт, хотя тот открыт (журнал 21.09, 09:05).
+  // и блок-экран выпадал на google.com (журнал 21.09, 09:05 — за всё утро ни
+  // одного обращения к youtube.com). С v0.24.3 поиск ходит вместе с ютубом.
   r = await visit({ url: 'https://www.google.com/search?q=youtube', host: 'https://www.google.com/', script: SCRIPT_YT });
-  check('поиск закрыт, как и раньше', r.blocker, 'Доступ закрыт');
-  check('но ссылка на ютуб предложена', r.links && r.links[0], 'YouTube — сегодня открыт');
+  check('поиск открыт, пока действует разрешение', [r.blocker, r.realPage], [null, true]);
   r = await visit({ url: 'https://www.google.com/search?q=youtube', host: 'https://www.google.com/', script: RAW });
+  check('без разрешения поиск закрыт', r.blocker, 'Доступ закрыт');
+
+  // А вот сосед по *.google.com обязан остаться закрытым: там почта, диск и
+  // магазин расширений, которым родительский контроль и сносят. Заодно это
+  // единственное место, где видно ссылку-дорогу на блок-экране.
+  r = await visit({ url: 'https://mail.google.com/', host: 'https://mail.google.com/', script: SCRIPT_YT });
+  check('почта закрыта и при действующем разрешении', r.blocker, 'Доступ закрыт');
+  check('и блок-экран показывает дорогу к ютубу', r.links && r.links[0], 'YouTube — сегодня открыт');
+  r = await visit({ url: 'https://mail.google.com/', host: 'https://mail.google.com/', script: RAW });
   check('без разрешения ссылки на ютуб нет', (r.links || []).some((t) => t.includes('YouTube')), false);
 
   console.log('\n── 5. Регрессия: предохранитель отправки жив там, где нужен ──');
