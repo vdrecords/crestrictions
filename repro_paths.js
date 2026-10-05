@@ -51,6 +51,9 @@ t('chess.com', '/analysis/game/live/123', true, 'анализ своей пар�
 t('chess.com', '/game/live/123', true, 'просмотр партии');
 t('chess.com', '/games/archive', true, 'архив партий');
 t('chess.com', '/puzzles', true, 'задачи');
+t('chess.com', '/library', true, 'библиотека: свои коллекции (v0.25.1)');
+t('chess.com', '/library/collections', true, 'список коллекций (v0.25.1)');
+t('chess.com', '/analysis/collection/t2-gonzalez-gonzalez-2MHWqpQpv/4u969X81BL/games', true, 'партия из коллекции');
 
 console.log('\n── chess.com: ядро запрета ──');
 t('chess.com', '/messages', false, 'переписка');
