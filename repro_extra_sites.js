@@ -44,6 +44,8 @@ const harness = `
 ${settings}
 const CONFIG = JSON.parse(JSON.stringify(LOCAL_CONFIG));
 let HOST = 'wordwall.net';
+let IS_FRAME = false;
+let TOP_HOST = '';
 const COURSE_ID = String(CONFIG.storage.courseId);
 let STORE = {};
 let NOW = new Date();
@@ -56,7 +58,8 @@ ${NAMES.map(fn).join('\n\n')}
 module.exports = {
   CONFIG, applyRemoteConfig, getExtraSiteUnlockNow, isExtraSiteUnlockedNow,
   getExtraSiteGrantsForDate, getQuickLinks, trackerKeys, normalizeExtraSiteHost,
-  setHost: (h) => { HOST = h; },
+  setHost: (h) => { HOST = h; IS_FRAME = false; TOP_HOST = h; },
+  setFrame: (h, top) => { HOST = h; IS_FRAME = true; TOP_HOST = top; },
   setStore: (k, v) => { STORE[k] = v; },
   clearStore: () => { STORE = {}; }
 };
@@ -179,6 +182,23 @@ console.log('\n── 11. Структура: порядок проверок и
   check('гейт трекера пропускает открытый сайт (оба места)', gates.length, 2);
   const tick = src.slice(src.indexOf('function initTimeBlocker()'));
   check('тик расписания обновляет слой', tick.indexOf('refreshExtraSitesUnlockState()') > 0, true);
+}
+
+console.log('\n── 12. Фрейм внутри открытого сайта (v0.26.1) ──');
+M.applyRemoteConfig({ extraSites: { grants: [{ host: 'teams.cloud.microsoft', dates: [DAY] }] } });
+const frameOn = (host, top, when = at(17)) => { M.setFrame(host, top); return M.getExtraSiteUnlockNow(when); };
+check('Файлы Teams (sharepoint) во фрейме Teams открыты', frameOn('educastur-my.sharepoint.com', 'teams.cloud.microsoft'), 'frame');
+check('служебный фрейм CDN Teams открыт', frameOn('teams.public.onecdn.static.microsoft', 'teams.cloud.microsoft'), 'frame');
+check('тот же sharepoint ВЕРХНЕЙ страницей закрыт', openOn('educastur-my.sharepoint.com'), null);
+check('фрейм внутри НЕоткрытого сайта закрыт', frameOn('educastur-my.sharepoint.com', 'example.com'), null);
+check('фрейм, чей верх неизвестен, закрыт', frameOn('educastur-my.sharepoint.com', ''), null);
+check('фрейм внутри страницы входа (спутник) закрыт', frameOn('cdn.example.net', 'login.microsoftonline.com'), null);
+check('шахматный фрейм внутри Teams — своими правилами', frameOn('www.chess.com', 'teams.cloud.microsoft'), null);
+check('назавтра фрейм закрыт вместе с сайтом', frameOn('educastur-my.sharepoint.com', 'teams.cloud.microsoft', new Date(2026, 9, 8, 17)), null);
+{
+  const body = src.slice(src.indexOf('function initUrlBlocker()'));
+  check('блок-лист раньше слоя — ютуб во фрейме не откроется',
+    body.indexOf('CONFIG.urlBlocker.blockedHosts') < body.indexOf('getExtraSiteUnlockNow()'), true);
 }
 
 console.log('\n' + (fails ? `❌ ПРОВАЛОВ: ${fails} из ${total}` : `✅ ВСЕ ${total} ПРОВЕРОК ПРОЙДЕНЫ`));
