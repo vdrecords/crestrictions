@@ -139,6 +139,7 @@ const BOT_MANAGES = [
   'lichess.fullUnlockWindows','lichess.fullUnlockOnTaskTarget','lichess.fullUnlockTaskThreshold',
   'lichess.fullUnlockTaskDisabledDates',
   'youtube.unlockDates','youtube.unlockWindows','youtube.afterTaskTarget',
+  'extraSites.grants',
   'telemetry.enabled'
 ].sort();
 check('список совпадает поле в поле', [...M.REMOTE_CONFIG_PATHS].sort(), BOT_MANAGES);
