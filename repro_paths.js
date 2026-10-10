@@ -55,6 +55,18 @@ t('chess.com', '/library', true, 'библиотека: свои коллекц�
 t('chess.com', '/library/collections', true, 'список коллекций (v0.25.1)');
 t('chess.com', '/analysis/collection/t2-gonzalez-gonzalez-2MHWqpQpv/4u969X81BL/games', true, 'партия из коллекции');
 
+console.log('\n── chess.com: v0.27 ──');
+t('chess.com', '/game/185017881024', true, 'партия по новому адресу без типа');
+t('chess.com', '/game/185017881024/analysis', true, 'анализ партии по новому адресу');
+t('chess.com', '/play/arena/31390975', true, 'арена (Bullet режет шапка события)');
+t('chess.com', '/play/tournament/31124317', true, 'турнир');
+t('chess.com', '/play/online', true, 'лобби');
+t('chess.com', '/play/online/club-challenges', false, 'вызовы клубам');
+t('chess.com', '/play/online/friend', false, 'игра с другом');
+t('chess.com', '/club/los-amigos-de-timofei', false, 'свой клуб');
+t('chess.com', '/club/notes/chess-com-community', false, 'заметки клуба');
+t('chess.com', '/tournament/live', false, 'список живых турниров (без фильтра)');
+
 console.log('\n── chess.com: ядро запрета ──');
 t('chess.com', '/messages', false, 'переписка');
 t('chess.com', '/member/hikaru', false, 'чужой профиль');

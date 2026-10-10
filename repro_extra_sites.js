@@ -162,8 +162,11 @@ M.applyRemoteConfig({});
 check('после {}: закрыт', openOn('wordwall.net'), null);
 
 console.log('\n── 10. Блок-экран говорит, куда можно ──');
+// Ссылки блок-экрана считаются от СЕГОДНЯ, а не от DAY: с зашитой датой проверка
+// краснела сама по себе с 08.10 (найдено 10.10 при выпуске v0.27.0).
+const TODAY_KEY = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
 M.applyRemoteConfig({ extraSites: { grants: [
-  { host: 'wordwall.net', dates: [DAY] }, { host: 'teams.cloud.microsoft', dates: [DAY] }
+  { host: 'wordwall.net', dates: [TODAY_KEY] }, { host: 'teams.cloud.microsoft', dates: [TODAY_KEY] }
 ] } });
 M.setHost('example.com');
 const links = M.getQuickLinks();
