@@ -613,6 +613,29 @@ node repro_full_unlock_nav.js       # 10/10 — Chrome, навигация (~20 
 рвётся на редиректе трекера. Разовый A/B со старой версией показал в этом сценарии
 идентичное поведение v0.17.2 и v0.18.0.
 
+## Заявки в друзья через новый API chess.com (v0.27.1)
+
+12.10.2026 ребёнок сказал, что нашёл, как принимать заявки в друзья. В журнале за
+день — 4 отрезанных `/callback/friend/accept` (всплывашка после дуэли), то есть
+старый канал был закрыт. Новый канал в бандле navigation 2026.10.1: вкладка
+«Друзья → Заявки» в левом меню, кнопка «Принять все» — Connect RPC
+`POST https://api.chess.com/rpc/chesscom.user_relationships.v1.BulkUserRelationshipsService/BulkAcceptFriendRequestsByUuids`;
+при флаге `accept_friend_user_gateway` и одиночное «Принять» идёт в
+`chesscom.user_gateway.v1.UserGatewayService/AcceptFriendRequest`. Предохранитель
+сверял только `/callback/friend`, поэтому RPC проходили. В журнал они не попадали
+вовсе: туда пишется только отрезанное.
+
+В `sendGuard.deny['chess.com']` добавлено правило
+`^/rpc/chesscom\.[a-z_]+\.v\d+\.[A-Za-z]+/(Send|Accept|BulkAccept|BulkCreate)Friend`:
+режутся все методы, которые ДОБАВЛЯЮТ друга (`SendFriendRequest`, `AcceptFriendRequest`,
+`AcceptFriendLink`, `BulkAcceptFriendRequestsByUuids`, `BulkCreateFriendRelationship`),
+в любом пакете и версии. Отклонить, отменить, удалить и заблокировать можно, список
+друзей читается. Правило действует и на `api.chess.com` (хост сверяется по суффиксу).
+
+Прибор — `repro_friends_rpc.mjs` (11 проверок, стенд под именами www/api.chess.com):
+на v0.27.0 до сервера доходят все пять «добавлений» (4/11), на v0.27.1 зелёные все 11.
+Уже принятых друзей скрипт не убирает: их нужно удалить вручную на chess.com.
+
 ## Разбор журнала 26.09–10.10: задачи, арены, чат, клубы (v0.27.0)
 
 Разбор телеметрии за две недели (7,5 тыс. событий) и пять правок по нему.
