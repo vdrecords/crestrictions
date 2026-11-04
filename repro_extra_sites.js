@@ -38,7 +38,9 @@ const NAMES = ['pad2', 'formatDateKey', 'parseTimeString', 'minutesToTimeString'
   'hostMatches', 'isDailyTaskTargetReached', 'getYoutubeUnlockWindowsForDate',
   'getActiveYoutubeUnlockWindow', 'isYoutubeGrantActiveNow', 'getQuickLinks',
   'normalizeExtraSiteHost', 'getExtraSiteGrantsForDate', 'getActiveExtraSiteGrants',
-  'extraSiteGrantCovers', 'getExtraSiteUnlockNow', 'isExtraSiteUnlockedNow'];
+  'extraSiteGrantCovers', 'getExtraSiteUnlockNow', 'isExtraSiteUnlockedNow',
+  // v0.28: getQuickLinks ставит первыми открытые студии.
+  'normalizeStudyId', 'getStudyGrantsForDate', 'getActiveStudyGrants'];
 
 const harness = `
 ${settings}
@@ -53,6 +55,7 @@ const RealDate = Date;
 function GM_getValue(k, d) { return Object.prototype.hasOwnProperty.call(STORE, k) ? STORE[k] : d; }
 function log() {}
 ${line('const EXTRA_SITE_HOST_RE')}
+${line('const STUDY_ID_RE')}
 ${paths}
 ${NAMES.map(fn).join('\n\n')}
 module.exports = {
