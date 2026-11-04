@@ -40,7 +40,7 @@ const NAMES = ['pad2', 'formatDateKey', 'parseTimeString', 'minutesToTimeString'
   'normalizeExtraSiteHost', 'getExtraSiteGrantsForDate', 'getActiveExtraSiteGrants',
   'extraSiteGrantCovers', 'getExtraSiteUnlockNow', 'isExtraSiteUnlockedNow',
   // v0.28: getQuickLinks ставит первыми открытые студии.
-  'normalizeStudyId', 'getStudyGrantsForDate', 'getActiveStudyGrants'];
+  'normalizeStudyId', 'getStudyGrantsAt', 'getActiveStudyGrants'];
 
 const harness = `
 ${settings}
