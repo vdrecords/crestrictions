@@ -140,6 +140,8 @@ const BOT_MANAGES = [
   'lichess.fullUnlockTaskDisabledDates',
   // v0.28: студии по ссылке — экран «📚 Студии» бота.
   'lichess.studyGrants',
+  // v0.28.1: «все студии сегодня» — кнопка бота.
+  'lichess.studiesOpenDates',
   'youtube.unlockDates','youtube.unlockWindows','youtube.afterTaskTarget',
   'extraSites.grants',
   'telemetry.enabled'
