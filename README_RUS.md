@@ -1150,3 +1150,18 @@ node repro_remote_config.js   # 59 проверок
   Владимира), норму не отменяет — до нормы lichess уводит на задачи.
 
 Прибор `repro_studies.mjs` (живые lichess и chess.com): на v0.28.1 — 33/33, на v0.28.0 — 19/33.
+
+## Проверка Cloudflare на входе lichess и chess.com (v0.28.2)
+
+16.11.2026: вход в аккаунт lichess падал с «Captcha error: 300030». Причина — наш скрипт:
+проверка «Verifying your device» — это Cloudflare Turnstile во фрейме
+`challenges.cloudflare.com`, домена нет в `allowedHosts`, и фрейм получал блок-экран
+(журнал: 9 блоков «домен не в списке разрешённых» за 7 минут).
+- `CHESS_SITE_FRAME_COMPANIONS` (раздел 5.7): `challenges.cloudflare.com` открыт **только
+  как фрейм** и только когда верхняя страница — ровно lichess.org / chess.com
+  (`ancestorOrigins`, точная сверка). Проверка стоит после блок-листа. Ядро запрета,
+  удалённо не управляется.
+- Вкладкой `challenges.cloudflare.com` закрыт, как раньше. Вход по ссылке на почту
+  (`/auth/magic-link`) не открыт — решение Владимира.
+
+Прибор `repro_cf_turnstile.js` (без сети): на v0.28.2 — 8/8, на v0.28.1 — 5/8.
