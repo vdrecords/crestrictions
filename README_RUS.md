@@ -1196,3 +1196,21 @@ https://lichess.org/game/<id>`); 8 знаков — зритель, 12 — иг�
 
 Прибор `repro_training_themes.js` (без сети): на v0.28.6 — 10/10, на v0.28.5 — темы после
 нормы закрыты (4 провала).
+
+## Команды и свои турниры lichess закрыты (v0.28.7)
+
+19.11.2026, решение Владимира после разбора телеметрии 4–19.11: поиск команд, своя команда
+и свои турниры в развитии не помогают. 17–18.11 ребёнок листал 47–55 чужих команд в день и
+правил турнир своей команды `listik345-club`.
+- Лазейка: каталог `^/team/?$` был закрыт с v0.23, но `/team/search`, `/team/all`, `/team/me`,
+  `/team/leader`, `/team/events`, `/team/updates` проходили под `allowRegex '^/team/[^/]+$'`
+  как «страница команды». Теперь они в `block`.
+- `/team/listik345-club` (и всё под ней) закрыта.
+- `/swiss/<id>/edit`, `/tournament/<id>/edit` закрыты (проходили под allow `/swiss`, `/tournament`).
+- `sendGuard` дополнительно режет POST на создание команды/турнира и управление ими
+  (`team/new`, `team/listik345-club`, `swiss/new`, `swiss/<id>/edit|update|terminate|schedule-next-round`,
+  `tournament/new`, `tournament/<id>/edit|update|terminate`, с `/api/` и без).
+- Открытым осталось: страница чужой команды и заявка на вступление — без них не попасть в
+  швейцарки; форум lichess и chess.com, клубы chess.com закрыты как и раньше.
+
+Прибор `repro_paths.js`: 66/66.
