@@ -15,21 +15,21 @@ module.exports = { isPathAllowedForHost, CONFIG };
 const M = require(__dirname + '/.extracted_paths.js');
 
 let fails = 0, total = 0;
-const t = (host, path, want, what) => {
+const t = (host, path, want, what, opts = {}) => {
   total++;
-  const got = M.isPathAllowedForHost(host, path, '');
+  const got = M.isPathAllowedForHost(host, path, '', opts);
   const ok = got === want;
   if (!ok) fails++;
   console.log(`  ${ok ? '✅' : '❌'} ${got ? '🟢' : '🔴'} ${path.padEnd(34)} ${what}`);
 };
 
 console.log('\n── lichess: команды и турниры (v0.23) ──');
-t('lichess.org', '/team/dr_dre08--yadeni', true, 'страница команды: вступить и попасть в швейцарку');
+t('lichess.org', '/team/dr_dre08--yadeni', false, 'чужая команда без разрешения родителя (v0.28.8)');
 t('lichess.org', '/team', false, 'каталог команд');
 t('lichess.org', '/team/x/forum', false, 'форум команды');
 t('lichess.org', '/team/x/pm-all', false, 'рассылка по участникам');
 t('lichess.org', '/team/x/members', false, 'список участников');
-t('lichess.org', '/team/sByjJI3g/request/new', true, 'заявка на вступление (v0.28.4)');
+t('lichess.org', '/team/sByjJI3g/request/new', false, 'заявка на вступление без разрешения (v0.28.8)');
 t('lichess.org', '/team/x/request/new/extra', false, 'вглубь заявки — закрыто');
 t('lichess.org', '/team/x/leaders', false, 'руководители команды');
 t('lichess.org', '/team/x/requests', false, 'чужие заявки');
@@ -43,7 +43,21 @@ t('lichess.org', '/team/me', false, 'мои команды (v0.28.7)');
 t('lichess.org', '/team/leader', false, 'команды, где он руководитель (v0.28.7)');
 t('lichess.org', '/team/events', false, 'лента событий команд (v0.28.7)');
 t('lichess.org', '/team/updates', false, 'обновления команд (v0.28.7)');
-t('lichess.org', '/team/online-world-chess-lovers', true, 'чужая команда: вступить ради швейцарки');
+t('lichess.org', '/team/online-world-chess-lovers', false, 'чужая команда без разрешения (v0.28.8)');
+console.log('\n── lichess: день, когда родитель разрешил вступать в команды (v0.28.8) ──');
+const TJ = { teamJoin: true };
+t('lichess.org', '/team/online-world-chess-lovers', true, 'чужая команда — можно вступить', TJ);
+t('lichess.org', '/team/sByjJI3g/request/new', true, 'заявка на вступление', TJ);
+t('lichess.org', '/team/x/request/new/extra', false, 'вглубь заявки — закрыто', TJ);
+t('lichess.org', '/team/x/members', false, 'участники — закрыто', TJ);
+t('lichess.org', '/team/x/forum', false, 'форум команды — закрыто', TJ);
+t('lichess.org', '/team', false, 'каталог команд — закрыт', TJ);
+t('lichess.org', '/team/search', false, 'поиск команд — закрыт', TJ);
+t('lichess.org', '/team/all', false, 'все команды — закрыто', TJ);
+t('lichess.org', '/team/listik345-club', false, 'своя команда — закрыта', TJ);
+t('lichess.org', '/team/new', false, 'создание команды — закрыто', TJ);
+t('lichess.org', '/swiss/new/listik345-club', false, 'создание швейцарки — закрыто', TJ);
+t('chess.com', '/clubs', false, 'chess.com клубы — не затронуты', TJ);
 t('lichess.org', '/swiss/k78nzIop/edit', false, 'правка своего турнира (v0.28.7)');
 t('lichess.org', '/swiss/new/listik345-club', false, 'создание швейцарки');
 t('lichess.org', '/tournament/abc12345/edit', false, 'правка своей арены (v0.28.7)');
