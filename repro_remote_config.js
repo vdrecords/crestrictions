@@ -142,6 +142,10 @@ const BOT_MANAGES = [
   'lichess.studyGrants',
   // v0.28.1: «все студии сегодня» — кнопка бота.
   'lichess.studiesOpenDates',
+  // v0.28.6: темы задач после нормы (удалённый тумблер).
+  'lichess.trainingThemesOnTaskTarget',
+  // v0.28.8: «вступать в команды сегодня» — кнопка бота.
+  'lichess.teamJoinDates',
   'youtube.unlockDates','youtube.unlockWindows','youtube.afterTaskTarget',
   'extraSites.grants',
   'telemetry.enabled'
